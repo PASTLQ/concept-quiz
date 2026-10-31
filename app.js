@@ -4,7 +4,7 @@
   const {fsrs, generatorParameters, createEmptyCard, Rating, State} = window.FSRS;
   const $app = document.getElementById('app');
   const DAY = 86400000;
-  const DEFAULTS = {method: 'choice', mode: 'both', field: -1, size: 20, newPerDay: 20};
+  const DEFAULTS = {method: 'choice', mode: 'both', field: -1, size: 20, newPerDay: 20, unlimited: false};
 
   const S = {data: null, byName: new Map(), byField: new Map(), cards: new Map(), settings: {...DEFAULTS},
              meta: {}, log: [], db: null, session: null, dbOk: true};
@@ -84,7 +84,7 @@
     S.data = await loadData();
     S.data.items.forEach((it, i) => {
       S.byName.set(it.n, i);
-      S.byField.has(it.f[0]) ? S.byField.get(it.f[0]).push(i) : S.byField.set(it.f[0], [i]);
+      it.f.forEach(f => S.byField.has(f) ? S.byField.get(f).push(i) : S.byField.set(f, [i]));
     });
     const cs = await getAll('cards'); cs.forEach(o => S.cards.set(o.id, de(o)));
     S.log = await getAll('log');
@@ -128,8 +128,7 @@
     const aa = new Set([x, ...(a.a || [])]);
     return [y, ...(b.a || [])].some(z => aa.has(z));
   }
-  function distractors(it, d, textLen) {
-    const field = it.f[0];
+  function distractors(it, d, field) {
     const pick = (pool, n) => {
       const cand = pool.map(i => S.data.items[i]).filter(o => o !== it && dirOk(o, d) && !related(it, o));
       const sameStart = o => d === 'n' && o.d.slice(0, 10) === it.d.slice(0, 10);
@@ -145,26 +144,41 @@
   }
   function makeQuestion(id) {
     const [name, d0] = splitKey(id); const it = S.data.items[S.byName.get(name)];
+    // 分野を絞っているときは、その分野を表示し、選択肢もその分野から選ぶ
+    const fsel = S.session ? S.session.fieldSel : -1; const fld = (fsel >= 0 && it.f.includes(fsel)) ? fsel : it.f[0];
     if (d0[0] === 'f') {
       const d = d0.slice(1);
-      return {id, d, flash: true, it, opts: [], answer: -1, field: S.data.fields[it.f[0]],
+      return {id, d, flash: true, it, opts: [], answer: -1, field: S.data.fields[fld],
               stem: d === 'd' ? '「＿＿は、' + (it.m || it.d) + '」\nこの説明があてはまる概念を思い出してください。' : '「' + it.n + '」とは何か、思い出してください。'};
     }
     const d = d0;
-    const ds = distractors(it, d, 0); const opts = shuffle([it, ...ds]);
+    const ds = distractors(it, d, fld); const opts = shuffle([it, ...ds]);
     return {id, d, it, opts, answer: opts.indexOf(it),
-            field: S.data.fields[it.f[0]],
+            field: S.data.fields[fld],
             stem: d === 'd' ? '「＿＿は、' + (it.m || it.d) + '」\nこの説明にあてはまる概念はどれ?' : '「' + it.n + '」の説明として正しいものはどれ?'};
   }
 
   function startSession() {
-    const st = S.settings, now = new Date();
-    let q = dueKeys(st, now).slice(0, st.size);
-    const room = Math.min(st.size - q.length, newQuota());
-    if (room > 0) q = q.concat(shuffle(newKeysAvailable(st)).slice(0, room));
+    const st = S.settings, now = new Date(), unl = !!st.unlimited;
+    let q;
+    if (unl) { q = dueKeys(st, now).slice(0, 40); q = q.concat(shuffle(newKeysAvailable(st)).slice(0, 40 - q.length)); }
+    else {
+      q = dueKeys(st, now).slice(0, st.size);
+      const room = Math.min(st.size - q.length, newQuota());
+      if (room > 0) q = q.concat(shuffle(newKeysAvailable(st)).slice(0, room));
+    }
     if (!q.length) return;
-    S.session = {queue: q.map(id => ({id, redo: false})), pos: 0, total: q.length, correct: 0, wrong: 0, newDone: 0, q: null, answered: false};
+    S.session = {queue: q.map(id => ({id, redo: false})), pos: 0, total: q.length, correct: 0, wrong: 0, newDone: 0, q: null, answered: false,
+                 fieldSel: st.field, unlimited: unl, seen: new Set(q), exhausted: false};
     showQuestion();
+  }
+  // 上限なしのとき、残りが少なくなったら次の問題を足す(期限の来た復習→新規の順)
+  function refill() {
+    const se = S.session; if (!se.unlimited || se.exhausted || se.queue.length - se.pos > 5) return;
+    const st = S.settings; let add = dueKeys(st, new Date()).filter(id => !se.seen.has(id)).slice(0, 30);
+    if (add.length < 30) add = add.concat(shuffle(newKeysAvailable(st).filter(id => !se.seen.has(id))).slice(0, 30 - add.length));
+    if (!add.length) { se.exhausted = true; return; }
+    add.forEach(id => { se.seen.add(id); se.queue.push({id, redo: false}); });
   }
 
   /* ---------- 画面: ホーム ---------- */
@@ -180,7 +194,7 @@
   function home() {
     S.session = null;
     const st = S.settings, c = counts();
-    const quota = newQuota(), will = Math.min(st.size, c.due + Math.min(quota, c.avail));
+    const quota = newQuota(), will = st.unlimited ? c.due + c.avail : Math.min(st.size, c.due + Math.min(quota, c.avail));
     const fopts = '<option value="-1">すべての分野</option>' + S.data.fields.map((f, i) => ({f, i})).sort((a, b) => a.f.localeCompare(b.f, 'ja')).map(o => '<option value="' + o.i + '"' + (o.i === st.field ? ' selected' : '') + '>' + esc(o.f) + '(' + (S.byField.get(o.i) || []).length + ')</option>').join('');
     const seg = (k, v, t) => '<button data-mode="' + v + '" aria-pressed="' + (st.mode === v) + '">' + t + '</button>';
     $app.innerHTML = '<main>' +
@@ -192,17 +206,19 @@
       '<div class="seg" role="group" aria-label="方式" style="margin-bottom:10px">' + ['choice', 'card'].map(v => '<button data-method="' + v + '" aria-pressed="' + (st.method === v) + '">' + (v === 'choice' ? '4択' : '単語帳') + '</button>').join('') + '</div>' +
       '<div class="seg" role="group" aria-label="出題の形式">' + seg('m', 'd', '定義→概念名') + seg('m', 'n', '概念名→定義') + seg('m', 'both', '両方') + '</div>' +
       '<div style="margin-top:12px"><label for="fld">分野</label><select id="fld">' + fopts + '</select></div>' +
-      '<div class="row" style="margin-top:12px;align-items:flex-end"><div class="grow"><label for="size">1回の問題数</label><select id="size">' + [10, 20, 40].map(n => '<option' + (st.size === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></div>' +
-      '<div class="grow"><label for="npd">新規の上限(1日)</label><input id="npd" type="number" min="0" max="200" value="' + st.newPerDay + '"></div></div></div>' +
-      '<button class="primary" id="go"' + (will ? '' : ' disabled') + '>' + (will ? '始める(' + will + '問)' : '今日はここまで') + '</button>' +
+      '<div class="row" style="margin-top:12px;align-items:flex-end"><div class="grow"><label for="size">1回の問題数</label><input id="size" type="number" min="1" max="9999" value="' + st.size + '"' + (st.unlimited ? ' disabled' : '') + '></div>' +
+      '<div class="grow"><label for="npd">新規の上限(1日)</label><input id="npd" type="number" min="0" max="9999" value="' + st.newPerDay + '"' + (st.unlimited ? ' disabled' : '') + '></div></div>' +
+      '<label class="chk"><input id="unl" type="checkbox"' + (st.unlimited ? ' checked' : '') + '> 上限なし(やめるまで続ける。新規の上限も使いません)</label></div>' +
+      '<button class="primary" id="go"' + (will ? '' : ' disabled') + '>' + (will ? '始める(' + (st.unlimited ? '上限なし・' : '') + will.toLocaleString() + '問)' : '今日はここまで') + '</button>' +
       '<div class="card"><h2>記録</h2><p class="sub" style="margin:0 0 10px">学習記録はこの端末の中だけに保存されます。端末を変えるときは、書き出して取り込んでください。</p>' +
       '<div class="row"><button class="ghost" id="exp">書き出し</button><button class="ghost" id="imp">取り込み</button><input type="file" id="file" accept="application/json" hidden></div><p class="sub" id="msg" style="margin:8px 0 0"></p></div>' +
       '</main>';
     $app.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { S.settings.mode = b.dataset.mode; persistSettings(); home(); });
     $app.querySelectorAll('[data-method]').forEach(b => b.onclick = () => { S.settings.method = b.dataset.method; persistSettings(); home(); });
     document.getElementById('fld').onchange = e => { S.settings.field = +e.target.value; persistSettings(); home(); };
-    document.getElementById('size').onchange = e => { S.settings.size = +e.target.value; persistSettings(); home(); };
-    document.getElementById('npd').onchange = e => { S.settings.newPerDay = Math.max(0, Math.min(200, +e.target.value || 0)); persistSettings(); home(); };
+    document.getElementById('size').onchange = e => { S.settings.size = Math.max(1, Math.min(9999, Math.round(+e.target.value) || 20)); persistSettings(); home(); };
+    document.getElementById('unl').onchange = e => { S.settings.unlimited = e.target.checked; persistSettings(); home(); };
+    document.getElementById('npd').onchange = e => { S.settings.newPerDay = Math.max(0, Math.min(9999, Math.round(+e.target.value) || 0)); persistSettings(); home(); };
     document.getElementById('go').onclick = startSession;
     document.getElementById('exp').onclick = exportData;
     document.getElementById('imp').onclick = () => document.getElementById('file').click();
@@ -221,8 +237,8 @@
     se.q = makeQuestion(cur.id); se.answered = false; se.t0 = Date.now();
     const q = se.q;
     $app.innerHTML = '<main>' +
-      '<div class="top"><button class="link" id="quit">やめる</button><span class="sub">' + (se.pos + 1) + ' / ' + se.queue.length + '</span></div>' +
-      '<div class="bar"><i style="width:' + (se.pos / se.queue.length * 100) + '%"></i></div>' +
+      '<div class="top"><button class="link" id="quit">終了</button><span class="sub">' + (se.pos + 1) + (se.unlimited ? '問目' : ' / ' + se.queue.length) + '</span></div>' +
+      (se.unlimited ? '' : '<div class="bar"><i style="width:' + (se.pos / se.queue.length * 100) + '%"></i></div>') +
       '<div class="card"><div class="tag">' + esc(q.field) + ' ・ ' + (q.flash ? '単語帳 ・ ' : '') + (q.d === 'd' ? '定義から概念' : '概念から定義') + (cur.redo ? ' ・ もう一度(記録なし)' : '') + '</div>' +
       '<p class="stem">' + esc(q.stem).replace(/\n/g, '<br>') + '</p>' +
       (q.flash ? '<button class="primary" id="show">答えを見る</button>' : '') +
@@ -230,10 +246,9 @@
       '<div id="fb"></div></div></main>';
     $app.querySelectorAll('.opt').forEach(b => b.onclick = () => answer(+b.dataset.k));
     if (q.flash) { const sb = document.getElementById('show'); sb.onclick = reveal; sb.focus(); }
-    document.getElementById('quit').onclick = () => { if (se.pos === 0 || confirmQuit()) { home(); } };
+    document.getElementById('quit').onclick = () => { se.correct + se.wrong > 0 ? finish() : home(); };
     window.scrollTo(0, 0);
   }
-  const confirmQuit = () => true;
 
   function answer(k) {
     const se = S.session; if (se.answered) return; se.answered = true;
@@ -247,10 +262,7 @@
     const ans = q.d === 'd' ? '<div>答え: <b>' + esc(q.it.n) + '</b>' + (q.it.a && q.it.a.length ? '<span class="sub">(別名: ' + esc(q.it.a.slice(0, 4).join('、')) + ')</span>' : '') + '</div>' : '';
     if (cur.redo) { fb.innerHTML = label + ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); return; }
     if (!ok) { fb.innerHTML = label + ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); record(cur.id, Rating.Again, false); requeue(cur); return; }
-    const card = S.cards.get(cur.id) || createEmptyCard(new Date()); const now = new Date(); const pre = sched.repeat(card, now);
-    const rb = [[Rating.Hard, '難しかった', 1], [Rating.Good, '普通', 2], [Rating.Easy, '簡単', 3]];
-    fb.innerHTML = label + ans + '<div class="sub">どのくらい楽に思い出せましたか</div><div class="rate">' + rb.map(r => '<button data-r="' + r[0] + '">' + r[1] + '<small>' + fmtIv(pre[r[0]].card.due, now) + '</small></button>').join('') + '</div>';
-    fb.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { record(cur.id, +b.dataset.r, true); next(); });
+    fb.innerHTML = label + ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); record(cur.id, Rating.Good, true);
   }
   function reveal() {
     const se = S.session; if (se.answered) return; se.answered = true;
@@ -276,7 +288,7 @@
     if (wasNew) { se.newDone++; const m = S.meta.newCount; const n = (m && m.date === today() ? m.n : 0) + 1; S.meta.newCount = {date: today(), n}; saveMeta('newCount', S.meta.newCount); }
     try { await saveCard(next); await addLog({id, r: rating, t: +now}); } catch (e) { S.dbOk = false; }
   }
-  function next() { const se = S.session; se.pos++; se.pos < se.queue.length ? showQuestion() : finish(); }
+  function next() { const se = S.session; se.pos++; refill(); se.pos < se.queue.length ? showQuestion() : finish(); }
 
   function finish() {
     const se = S.session; const n = se.correct + se.wrong;

@@ -49,3 +49,5 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid 
 .link{background:none;border:0;color:var(--accent);font:inherit;text-decoration:underline;cursor:pointer;padding:0}
 .rate.four{grid-template-columns:repeat(4,1fr)}
 @media (max-width:360px){.rate.four{grid-template-columns:repeat(2,1fr)}}
+.chk{display:flex;gap:8px;align-items:center;margin:12px 0 0;font-size:14px;color:var(--fg)}
+.chk input{width:auto}
