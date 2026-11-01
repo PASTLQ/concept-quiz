@@ -118,3 +118,9 @@ summary{cursor:pointer;font-size:14px;color:var(--sub);font-weight:600}
 .word.used{background:var(--line);color:transparent;border-color:var(--line);cursor:default}
 .word:disabled:not(.used){opacity:.6}
 .wr{margin:0;padding-left:1.3em}
+.czt{font-size:20px;margin:4px 0 6px;color:var(--fg);letter-spacing:0;font-weight:700}
+.czh{font-size:16px;margin:1.2em 0 0}
+.blank::before{content:attr(data-n);font-size:10px;color:var(--sub);margin-right:5px;vertical-align:super}
+.czp{position:sticky;bottom:0;margin:14px -16px -16px;padding:10px 16px 14px;background:var(--card);border-top:1px solid var(--line);border-radius:0 0 10px 10px;box-shadow:0 -6px 12px -8px rgba(0,0,0,.18)}
+.czp .bank{margin:0 0 10px;padding:0;border:0;max-height:34vh;overflow:auto}
+.czp[hidden]{display:none}

@@ -168,7 +168,7 @@
             stem: d === 'd' ? '「＿＿は、' + (it.m || it.d) + '」\nこの説明にあてはまる概念はどれ?' : '「' + it.n + '」の説明として正しいものはどれ?'};
   }
 
-  const isCloze = id => /\|c\d+$/.test(id);
+  const isCloze = id => /\|w$/.test(id);
   async function startCloze() {
     const st = S.settings, now = new Date(), unl = !!st.unlimited;
     $app.innerHTML = '<main><p class="sub">問題を用意しています(初回は少し時間がかかります)…</p></main>';
@@ -245,7 +245,7 @@
       (c.rate !== null ? '<p class="sub" style="margin:10px 0 0;text-align:center">直近7日: ' + c.recent + '問、正答率 ' + c.rate + '%</p>' : '') + '</div>' +
       '<div class="card"><h2>出題</h2>' +
       '<div class="seg" role="group" aria-label="方式" style="margin-bottom:10px">' + ['choice', 'card', 'cloze'].map(v => '<button data-method="' + v + '" aria-pressed="' + (st.method === v) + '">' + ({choice: '4択', card: '単語帳', cloze: '穴埋め'}[v]) + '</button>').join('') + '</div>' +
-      (st.method === 'cloze' ? '<p class="sub" style="margin:0">ノートの本文にある概念のリンクを空欄にします。下の語から選んで埋めてください。</p>' : '<div class="seg" role="group" aria-label="出題の形式">' + seg('m', 'd', '定義→概念名') + seg('m', 'n', '概念名→定義') + seg('m', 'both', '両方') + '</div>') +
+      (st.method === 'cloze' ? '<p class="sub" style="margin:0">ノート1つを丸ごと1問にして、本文にある概念のリンクを空欄にします。下の語から選んで埋めてください。</p>' : '<div class="seg" role="group" aria-label="出題の形式">' + seg('m', 'd', '定義→概念名') + seg('m', 'n', '概念名→定義') + seg('m', 'both', '両方') + '</div>') +
       '<div style="margin-top:12px"><label for="fld">分野</label><select id="fld">' + fopts + '</select></div>' +
       '<div class="row" style="margin-top:12px;align-items:flex-end"><div class="grow"><label for="size">1回の問題数</label><input id="size" type="number" min="1" max="9999" value="' + st.size + '"' + (st.unlimited ? ' disabled' : '') + '></div>' +
       '<div class="grow"><label for="npd">新規の上限(1日)</label><input id="npd" type="number" min="0" max="9999" value="' + st.newPerDay + '"' + (st.unlimited ? ' disabled' : '') + '></div></div>' +
@@ -352,38 +352,43 @@
     if (S.session !== se || se.queue[se.pos] !== cur) return;
     if (!q) { next(); return; } // ノートが書き換わって段落が無くなった
     se.q = q; se.answered = false; se.t0 = Date.now();
-    const slots = new Array(q.answers.length).fill(-1); let sel = -1, checked = false;
+    const nb = q.answers.length, slots = new Array(nb).fill(-1); let sel = -1, checked = false;
+    const blk = g => g.map(x => x.b === undefined ? esc(x.v).replace(/\n/g, '<br>') : '<button class="blank" data-b="' + x.b + '" data-n="' + (x.b + 1) + '" aria-label="空欄' + (x.b + 1) + '"></button>').join('');
     $app.innerHTML = '<main>' +
       '<div class="top"><button class="link" id="quit">終了</button><span class="sub">' + (se.pos + 1) + (se.unlimited ? '問目' : ' / ' + se.queue.length) + '</span></div>' +
       (se.unlimited ? '' : '<div class="bar"><i style="width:' + (se.pos / se.queue.length * 100) + '%"></i></div>') +
-      '<div class="card"><div class="tag">' + esc(q.field) + ' ・ 穴埋め' + (cur.redo ? ' ・ もう一度(記録なし)' : '') + '</div>' +
-      '<p class="sub" style="margin:2px 0 6px">「' + esc(q.note) + '」のノートより</p>' +
-      '<p class="cz">' + q.segs.map(g => g.b === undefined ? esc(g.v) : '<button class="blank" data-b="' + g.b + '" aria-label="空欄' + (g.b + 1) + '"></button>').join('') + '</p>' +
-      '<div class="bank">' + q.bank.map((w, k) => '<button class="word" data-w="' + k + '">' + esc(w.w) + '</button>').join('') + '</div>' +
-      '<div id="fb" class="fb"><button class="primary" id="chk" disabled>答え合わせ</button></div></div></main>';
+      '<div class="card"><div class="tag">' + esc(q.field) + ' ・ 穴埋め' + (cur.redo ? ' ・ もう一度(記録なし)' : '') + ' ・ 空欄' + nb + '個</div>' +
+      '<h2 class="czt">' + esc(q.note) + '</h2>' +
+      q.blocks.map(b => b.head ? '<h3 class="czh">' + blk(b.segs) + '</h3>' : '<p class="cz">' + blk(b.segs) + '</p>').join('') +
+      '<div class="czp" id="panel"><div class="bank">' + q.bank.map((w, k) => '<button class="word" data-w="' + k + '">' + esc(w.w) + '</button>').join('') + '</div>' +
+      '<button class="primary" id="chk" disabled>答え合わせ</button></div>' +
+      '<div id="fb" class="fb" hidden></div></div></main>';
     document.getElementById('quit').onclick = quit;
     const blanks = [...$app.querySelectorAll('.blank')], words = [...$app.querySelectorAll('.word')], chk = document.getElementById('chk');
     const paint = () => {
-      blanks.forEach((b, i) => { const w = slots[i]; b.textContent = w >= 0 ? q.bank[w].w : ''; b.classList.toggle('sel', !checked && sel === i); });
+      blanks.forEach(b => { const i = +b.dataset.b, w = slots[i]; b.textContent = checked ? q.answers[i] : (w >= 0 ? q.bank[w].w : ''); b.classList.toggle('sel', !checked && sel === i); });
       words.forEach((b, k) => { b.classList.toggle('used', slots.includes(k)); b.disabled = checked || slots.includes(k); });
       chk.disabled = slots.includes(-1);
     };
-    blanks.forEach((b, i) => b.onclick = () => { if (checked) return; if (slots[i] >= 0) { slots[i] = -1; sel = i; } else sel = i; paint(); });
+    blanks.forEach(b => b.onclick = () => { if (checked) return; const i = +b.dataset.b; if (slots[i] >= 0) { slots[i] = -1; sel = i; } else sel = i; paint(); });
     words.forEach((b, k) => b.onclick = () => {
       if (checked || slots.includes(k)) return;
       let t = sel >= 0 && slots[sel] < 0 ? sel : slots.indexOf(-1); if (t < 0) return;
       slots[t] = k; sel = -1; paint();
+      const nx = slots.indexOf(-1); const nb2 = nx >= 0 ? blanks.find(x => +x.dataset.b === nx) : null; if (nb2 && nb2.getBoundingClientRect().top > window.innerHeight * .55) nb2.scrollIntoView({block: 'center', behavior: 'smooth'});
     });
     chk.onclick = () => {
       if (checked || chk.disabled) return; checked = true; se.answered = true; sel = -1;
-      const res = slots.map((w, i) => q.bank[w].w === q.answers[i]); const ok = res.every(Boolean);
-      blanks.forEach((b, i) => { b.classList.add(res[i] ? 'ok' : 'ng'); }); paint();
-      const fb = document.getElementById('fb');
-      const wrong = res.map((r, i) => r ? '' : '<li>空欄' + (i + 1) + ': 正しくは「<b>' + esc(q.answers[i]) + '</b>」</li>').join('');
-      fb.innerHTML = '<div class="v ' + (ok ? 'ok' : 'ng') + '">' + (ok ? '正解' : '不正解') + '</div>' + (wrong ? '<ul class="wr">' + wrong + '</ul>' : '') + '<button class="primary" id="nx">次へ</button>';
-      bindNext(); noteLink(q.note);
+      const res = slots.map((w, i) => q.bank[w].w === q.answers[i]), bad = res.filter(r => !r).length;
+      const rating = bad === 0 ? Rating.Good : bad <= Math.floor(nb / 4) ? Rating.Hard : Rating.Again, ok = rating >= Rating.Hard;
+      blanks.forEach(b => b.classList.add(res[+b.dataset.b] ? 'ok' : 'ng')); paint();
+      document.getElementById('panel').hidden = true;
+      const wrong = res.map((r, i) => r ? '' : '<li>(' + (i + 1) + ') 「' + esc(q.bank[slots[i]].w) + '」→ 正しくは「<b>' + esc(q.answers[i]) + '</b>」</li>').join('');
+      const fb = document.getElementById('fb'); fb.hidden = false;
+      fb.innerHTML = '<div class="v ' + (ok ? 'ok' : 'ng') + '">' + (bad === 0 ? '全問正解' : (nb - bad) + ' / ' + nb + ' 正解' + (ok ? '(おしい)' : '')) + '</div>' + (wrong ? '<ul class="wr">' + wrong + '</ul>' : '') + '<button class="primary" id="nx">次へ</button>';
+      bindNext(); noteLink(q.note); fb.scrollIntoView({block: 'nearest', behavior: 'smooth'});
       if (cur.redo) return;
-      if (ok) record(cur.id, Rating.Good, true); else { record(cur.id, Rating.Again, false); requeue(cur); }
+      record(cur.id, rating, ok); if (rating === Rating.Again) requeue(cur);
     };
     paint(); window.scrollTo(0, 0);
   }
