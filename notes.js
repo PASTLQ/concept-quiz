@@ -309,5 +309,5 @@
     const m = /^#\/n\/(.+)$/.exec(h);
     if (m) { let nm; try { nm = decodeURIComponent(m[1]); } catch (e) { nm = m[1]; } page(nm); } else hub();
   }
-  window.Notes = {route, openSheet};
+  window.Notes = {route, openSheet, api: {ensure, N, bodyOf, resolve, chunk, isLoaded: c => chunkD.has(c)}};
 })();

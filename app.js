@@ -168,7 +168,24 @@
             stem: d === 'd' ? '「＿＿は、' + (it.m || it.d) + '」\nこの説明にあてはまる概念はどれ?' : '「' + it.n + '」の説明として正しいものはどれ?'};
   }
 
+  const isCloze = id => /\|c\d+$/.test(id);
+  async function startCloze() {
+    const st = S.settings, now = new Date(), unl = !!st.unlimited;
+    $app.innerHTML = '<main><p class="sub">問題を用意しています(初回は少し時間がかかります)…</p></main>';
+    let q;
+    try {
+      await window.Cloze.ensure();
+      const due = window.Cloze.dueKeys(st, now); q = due.slice(0, unl ? 40 : st.size);
+      const room = unl ? 40 - q.length : Math.min(st.size - q.length, newQuota());
+      if (room > 0) q = q.concat(await window.Cloze.newKeys(st, room, new Set(q)));
+    } catch (e) { $app.innerHTML = '<main><div class="notice">問題を用意できませんでした。(' + esc(e.message) + ')</div><button class="ghost" id="hm">ホームへ</button></main>'; document.getElementById('hm').onclick = home; return; }
+    if (!q.length) { home(); return; }
+    S.session = {queue: q.map(id => ({id, redo: false})), pos: 0, total: q.length, correct: 0, wrong: 0, newDone: 0, q: null, answered: false,
+                 fieldSel: st.field, unlimited: unl, seen: new Set(q), exhausted: false, pending: null};
+    showQuestion();
+  }
   function startSession() {
+    if (S.settings.method === 'cloze') { startCloze(); return; }
     const st = S.settings, now = new Date(), unl = !!st.unlimited;
     let q;
     if (unl) { q = dueKeys(st, now).slice(0, 40); q = q.concat(shuffle(newKeysAvailable(st)).slice(0, 40 - q.length)); }
@@ -185,6 +202,16 @@
   // 上限なしのとき、残りが少なくなったら次の問題を足す(期限の来た復習→新規の順)
   function refill() {
     const se = S.session; if (!se.unlimited || se.exhausted || se.queue.length - se.pos > 5) return;
+    if (S.settings.method === 'cloze') {
+      if (se.pending) return;
+      se.pending = (async () => {
+        const st = S.settings; let add = window.Cloze.dueKeys(st, new Date()).filter(id => !se.seen.has(id)).slice(0, 30);
+        if (add.length < 30) add = add.concat(await window.Cloze.newKeys(st, 30 - add.length, se.seen));
+        if (!add.length) { se.exhausted = true; return; }
+        add.forEach(id => { se.seen.add(id); se.queue.push({id, redo: false}); });
+      })().catch(() => { se.exhausted = true; }).finally(() => { se.pending = null; });
+      return;
+    }
     const st = S.settings; let add = dueKeys(st, new Date()).filter(id => !se.seen.has(id)).slice(0, 30);
     if (add.length < 30) add = add.concat(shuffle(newKeysAvailable(st).filter(id => !se.seen.has(id))).slice(0, 30 - add.length));
     if (!add.length) { se.exhausted = true; return; }
@@ -194,12 +221,15 @@
   /* ---------- 画面: ホーム ---------- */
   function counts() {
     const st = S.settings, now = new Date();
-    const due = dueKeys(st, now).length;
-    const avail = newKeysAvailable(st).length;
+    let due, avail, loading = false;
+    if (st.method === 'cloze') {
+      if (window.Cloze && window.Cloze.ready()) { due = window.Cloze.dueKeys(st, now).length; avail = window.Cloze.poolSize(st); }
+      else { due = 0; avail = 0; loading = true; window.Cloze && window.Cloze.ensure().then(() => { if (!S.session && S.settings.method === 'cloze') home(); }).catch(() => {}); }
+    } else { due = dueKeys(st, now).length; avail = newKeysAvailable(st).length; }
     const learned = [...S.cards.values()].filter(c => c.state !== State.New).length;
     const since = Date.now() - 7 * DAY;
     const recent = S.log.filter(e => e.t >= since); const ok = recent.filter(e => e.r >= 2).length;
-    return {due, avail, learned, recent: recent.length, rate: recent.length ? Math.round(ok / recent.length * 100) : null};
+    return {due, avail, learned, loading, recent: recent.length, rate: recent.length ? Math.round(ok / recent.length * 100) : null};
   }
   function home() {
     S.session = null;
@@ -214,13 +244,13 @@
       '<div class="card"><div class="stats"><div><b>' + c.due + '</b><span>復習の期限</span></div><div><b>' + Math.min(quota, c.avail) + '</b><span>今日の新規</span></div><div><b>' + c.learned.toLocaleString() + '</b><span>学習済み</span></div></div>' +
       (c.rate !== null ? '<p class="sub" style="margin:10px 0 0;text-align:center">直近7日: ' + c.recent + '問、正答率 ' + c.rate + '%</p>' : '') + '</div>' +
       '<div class="card"><h2>出題</h2>' +
-      '<div class="seg" role="group" aria-label="方式" style="margin-bottom:10px">' + ['choice', 'card'].map(v => '<button data-method="' + v + '" aria-pressed="' + (st.method === v) + '">' + (v === 'choice' ? '4択' : '単語帳') + '</button>').join('') + '</div>' +
-      '<div class="seg" role="group" aria-label="出題の形式">' + seg('m', 'd', '定義→概念名') + seg('m', 'n', '概念名→定義') + seg('m', 'both', '両方') + '</div>' +
+      '<div class="seg" role="group" aria-label="方式" style="margin-bottom:10px">' + ['choice', 'card', 'cloze'].map(v => '<button data-method="' + v + '" aria-pressed="' + (st.method === v) + '">' + ({choice: '4択', card: '単語帳', cloze: '穴埋め'}[v]) + '</button>').join('') + '</div>' +
+      (st.method === 'cloze' ? '<p class="sub" style="margin:0">ノートの本文にある概念のリンクを空欄にします。下の語から選んで埋めてください。</p>' : '<div class="seg" role="group" aria-label="出題の形式">' + seg('m', 'd', '定義→概念名') + seg('m', 'n', '概念名→定義') + seg('m', 'both', '両方') + '</div>') +
       '<div style="margin-top:12px"><label for="fld">分野</label><select id="fld">' + fopts + '</select></div>' +
       '<div class="row" style="margin-top:12px;align-items:flex-end"><div class="grow"><label for="size">1回の問題数</label><input id="size" type="number" min="1" max="9999" value="' + st.size + '"' + (st.unlimited ? ' disabled' : '') + '></div>' +
       '<div class="grow"><label for="npd">新規の上限(1日)</label><input id="npd" type="number" min="0" max="9999" value="' + st.newPerDay + '"' + (st.unlimited ? ' disabled' : '') + '></div></div>' +
       '<label class="chk"><input id="unl" type="checkbox"' + (st.unlimited ? ' checked' : '') + '> 上限なし(やめるまで続ける。新規の上限も使いません)</label></div>' +
-      '<button class="primary" id="go"' + (will ? '' : ' disabled') + '>' + (will ? '始める(' + (st.unlimited ? '上限なし・' : '') + will.toLocaleString() + '問)' : '今日はここまで') + '</button>' +
+      '<button class="primary" id="go"' + (will && !c.loading ? '' : ' disabled') + '>' + (c.loading ? 'ノートを読み込んでいます…' : will ? '始める(' + (st.unlimited ? '上限なし・' : '') + will.toLocaleString() + '問)' : '今日はここまで') + '</button>' +
       '<div class="card"><h2>記録</h2><p class="sub" style="margin:0 0 10px">学習記録はこの端末の中だけに保存されます。端末を変えるときは、書き出して取り込んでください。</p>' +
       '<div class="row"><button class="ghost" id="exp">書き出し</button><button class="ghost" id="imp">取り込み</button><input type="file" id="file" accept="application/json" hidden></div><p class="sub" id="msg" style="margin:8px 0 0"></p></div>' +
       '</main>';
@@ -246,6 +276,7 @@
   }
   function showQuestion() {
     const se = S.session; const cur = se.queue[se.pos];
+    if (isCloze(cur.id)) { showCloze(se, cur); return; }
     se.q = makeQuestion(cur.id); se.answered = false; se.t0 = Date.now();
     const q = se.q;
     $app.innerHTML = '<main>' +
@@ -306,7 +337,56 @@
     if (wasNew) { se.newDone++; const m = S.meta.newCount; const n = (m && m.date === today() ? m.n : 0) + 1; S.meta.newCount = {date: today(), n}; saveMeta('newCount', S.meta.newCount); }
     try { await saveCard(next); await addLog({id, r: rating, t: +now}); } catch (e) { S.dbOk = false; }
   }
-  function next() { const se = S.session; se.pos++; refill(); se.pos < se.queue.length ? showQuestion() : finish(); }
+  async function next() {
+    const se = S.session; se.pos++; refill();
+    if (se.pos >= se.queue.length && se.pending) { $app.innerHTML = '<main><p class="sub">次の問題を用意しています…</p></main>'; await se.pending; if (S.session !== se) return; }
+    se.pos < se.queue.length ? showQuestion() : finish();
+  }
+
+  /* ---------- 穴埋め ---------- */
+  async function showCloze(se, cur) {
+    const quit = () => { se.correct + se.wrong > 0 ? finish() : home(); };
+    $app.innerHTML = '<main><div class="top"><button class="link" id="quit">終了</button><span class="sub">読み込んでいます…</span></div></main>';
+    document.getElementById('quit').onclick = quit;
+    let q = null; try { q = await window.Cloze.make(cur.id); } catch (e) { q = null; }
+    if (S.session !== se || se.queue[se.pos] !== cur) return;
+    if (!q) { next(); return; } // ノートが書き換わって段落が無くなった
+    se.q = q; se.answered = false; se.t0 = Date.now();
+    const slots = new Array(q.answers.length).fill(-1); let sel = -1, checked = false;
+    $app.innerHTML = '<main>' +
+      '<div class="top"><button class="link" id="quit">終了</button><span class="sub">' + (se.pos + 1) + (se.unlimited ? '問目' : ' / ' + se.queue.length) + '</span></div>' +
+      (se.unlimited ? '' : '<div class="bar"><i style="width:' + (se.pos / se.queue.length * 100) + '%"></i></div>') +
+      '<div class="card"><div class="tag">' + esc(q.field) + ' ・ 穴埋め' + (cur.redo ? ' ・ もう一度(記録なし)' : '') + '</div>' +
+      '<p class="sub" style="margin:2px 0 6px">「' + esc(q.note) + '」のノートより</p>' +
+      '<p class="cz">' + q.segs.map(g => g.b === undefined ? esc(g.v) : '<button class="blank" data-b="' + g.b + '" aria-label="空欄' + (g.b + 1) + '"></button>').join('') + '</p>' +
+      '<div class="bank">' + q.bank.map((w, k) => '<button class="word" data-w="' + k + '">' + esc(w.w) + '</button>').join('') + '</div>' +
+      '<div id="fb" class="fb"><button class="primary" id="chk" disabled>答え合わせ</button></div></div></main>';
+    document.getElementById('quit').onclick = quit;
+    const blanks = [...$app.querySelectorAll('.blank')], words = [...$app.querySelectorAll('.word')], chk = document.getElementById('chk');
+    const paint = () => {
+      blanks.forEach((b, i) => { const w = slots[i]; b.textContent = w >= 0 ? q.bank[w].w : ''; b.classList.toggle('sel', !checked && sel === i); });
+      words.forEach((b, k) => { b.classList.toggle('used', slots.includes(k)); b.disabled = checked || slots.includes(k); });
+      chk.disabled = slots.includes(-1);
+    };
+    blanks.forEach((b, i) => b.onclick = () => { if (checked) return; if (slots[i] >= 0) { slots[i] = -1; sel = i; } else sel = i; paint(); });
+    words.forEach((b, k) => b.onclick = () => {
+      if (checked || slots.includes(k)) return;
+      let t = sel >= 0 && slots[sel] < 0 ? sel : slots.indexOf(-1); if (t < 0) return;
+      slots[t] = k; sel = -1; paint();
+    });
+    chk.onclick = () => {
+      if (checked || chk.disabled) return; checked = true; se.answered = true; sel = -1;
+      const res = slots.map((w, i) => q.bank[w].w === q.answers[i]); const ok = res.every(Boolean);
+      blanks.forEach((b, i) => { b.classList.add(res[i] ? 'ok' : 'ng'); }); paint();
+      const fb = document.getElementById('fb');
+      const wrong = res.map((r, i) => r ? '' : '<li>空欄' + (i + 1) + ': 正しくは「<b>' + esc(q.answers[i]) + '</b>」</li>').join('');
+      fb.innerHTML = '<div class="v ' + (ok ? 'ok' : 'ng') + '">' + (ok ? '正解' : '不正解') + '</div>' + (wrong ? '<ul class="wr">' + wrong + '</ul>' : '') + '<button class="primary" id="nx">次へ</button>';
+      bindNext(); noteLink(q.note);
+      if (cur.redo) return;
+      if (ok) record(cur.id, Rating.Good, true); else { record(cur.id, Rating.Again, false); requeue(cur); }
+    };
+    paint(); window.scrollTo(0, 0);
+  }
 
   function finish() {
     const se = S.session; const n = se.correct + se.wrong;
@@ -344,6 +424,7 @@
   /* ---------- キー操作 ---------- */
   document.addEventListener('keydown', e => {
     const se = S.session; if (!se || !se.q || e.metaKey || e.ctrlKey || document.querySelector('.sheet')) return;
+    if (se.q.cloze && !se.answered) { if (e.key === 'Enter') { const c = document.getElementById('chk'); if (c && !c.disabled) { e.preventDefault(); c.click(); } } return; }
     if (!se.answered && se.q.flash && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); reveal(); return; }
     if (!se.answered && /^[1-4]$/.test(e.key) && se.q.opts[+e.key - 1]) { answer(+e.key - 1); return; }
     if (se.answered) {
