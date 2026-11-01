@@ -355,11 +355,11 @@
 
   /* ---------- タブと画面の切り替え ---------- */
   function tabsHTML(active) {
-    return '<nav class="tabs" aria-label="画面"><button data-tab="quiz" aria-pressed="' + (active === 'quiz') + '">クイズ</button><button data-tab="notes" aria-pressed="' + (active === 'notes') + '">ノート</button></nav>';
+    return '<nav class="tabs" aria-label="画面"><button data-tab="quiz" aria-pressed="' + (active === 'quiz') + '">クイズ</button><button data-tab="notes" aria-pressed="' + (active === 'notes') + '">ノート</button><button data-tab="fields" aria-pressed="' + (active === 'fields') + '">分野別</button></nav>';
   }
   function bindTabs() {
     $app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
-      const to = b.dataset.tab === 'notes' ? '#/notes' : '';
+      const to = b.dataset.tab === 'notes' ? '#/notes' : b.dataset.tab === 'fields' ? '#/fields' : '';
       if (to === '' && !location.hash.startsWith('#/')) { home(); return; }
       if (location.hash === to) route(); else location.hash = to;
     });

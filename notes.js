@@ -191,6 +191,90 @@
     wireNote(Q.$app, n); wireLinks(Q.$app, null);
   }
 
+
+  /* ---------- 画面: 分野別(学問ごとのタブで概念を一覧) ---------- */
+  let DT = null;
+  function dtree() {
+    if (DT) return DT;
+    const kids = new Map(), hasParent = new Set(), discs = [], fieldOf = new Map();
+    N.fields.forEach((f, fi) => fieldOf.set(f, fi));
+    N.list.forEach((n, i) => { if (n.t === 'd') discs.push(i); });
+    discs.forEach(i => parseFlow((N.list[i].p || {})['上位分野']).map(linkName).filter(Boolean).forEach(pn => {
+      const pi = N.byName.get(pn);
+      if (pi !== undefined && pi !== i && N.list[pi].t === 'd') { (kids.get(pi) || kids.set(pi, []).get(pi)).push(i); hasParent.add(i); }
+    }));
+    const covered = new Set();
+    const mk = (i, depth) => ({name: N.list[i].n, di: i, depth, fis: fieldOf.has(N.list[i].n) ? [fieldOf.get(N.list[i].n)] : []});
+    const roots = discs.filter(i => !hasParent.has(i)).sort(byJa).map(ri => {
+      const root = mk(ri, 0), subs = [], seen = new Set([ri]);
+      const walk = (i, depth, owner) => (kids.get(i) || []).slice().sort(byJa).forEach(k => {
+        if (seen.has(k)) return; seen.add(k);
+        const e = mk(k, depth); subs.push(e); walk(k, depth + 1, e);
+        owner.fis.push(...e.fis);
+      });
+      walk(ri, 1, root); root.subs = subs; return root;
+    });
+    roots.forEach(r => { r.fis.forEach(f => covered.add(f)); });
+    // 分野ノートが無い分野(概念側にだけ書かれている分野)は「その他」にまとめる
+    const orph = []; N.fields.forEach((f, fi) => { if (!covered.has(fi) && (N.members.get(fi) || []).length) orph.push({name: f, di: -1, depth: 1, fis: [fi]}); });
+    orph.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+    if (orph.length) roots.push({name: 'その他', di: -1, depth: 0, fis: orph.map(o => o.fis[0]), subs: orph});
+    return (DT = {roots});
+  }
+  const F = {root: null, sub: -1, q: '', ppl: false, shown: 100, y: 0};
+  const members = (fis, ppl) => {
+    const set = new Set(); fis.forEach(fi => (N.members.get(fi) || []).forEach(i => { if (ppl || N.list[i].t === 'c') set.add(i); }));
+    return set;
+  };
+  function fres(i) {
+    const n = N.list[i]; const fl = (n.f || []).slice(0, 3).map(f => N.fields[f]).join('・') + ((n.f || []).length > 3 ? '…' : '');
+    return '<a class="res" href="#/n/' + enc(n.n) + '" data-n="' + esc(n.n) + '"><b>' + esc(n.n) + (n.t === 'p' ? ' <span class="badge">人物</span>' : '') + '</b><span class="sub">' + esc(fl) + ' ・ ' + esc(snippet(n, 40)) + '</span></a>';
+  }
+  async function fieldsPage(rootName) {
+    const my = ++token;
+    Q.$app.innerHTML = '<main>' + tabs('fields') + '<p class="sub">ノートを読み込んでいます(初回は少し時間がかかります)…</p></main>'; Q.bindTabs();
+    try { await ensure(); } catch (e) { if (my === token) { Q.$app.innerHTML = '<main>' + tabs('fields') + '<div class="notice">ノートのデータを読み込めませんでした。(' + esc(e.message) + ')</div></main>'; Q.bindTabs(); } return; }
+    if (my !== token) return;
+    const T = dtree(); if (!T.roots.length) { Q.$app.innerHTML = '<main>' + tabs('fields') + '<div class="notice">分野のノートがありません。</div></main>'; Q.bindTabs(); return; }
+    if (rootName && T.roots.some(r => r.name === rootName) && F.root !== rootName) { F.root = rootName; F.sub = -1; F.q = ''; F.shown = 100; }
+    if (!F.root || !T.roots.some(r => r.name === F.root)) { F.root = T.roots[0].name; F.sub = -1; }
+    window.scrollTo(0, 0); render(true);
+    function render(first) {
+      const root = T.roots.find(r => r.name === F.root);
+      const tabsH = T.roots.map(r => '<button class="ftab" data-root="' + esc(r.name) + '" aria-pressed="' + (r.name === F.root) + '">' + esc(r.name) + ' <small>' + members(r.fis, F.ppl).size.toLocaleString() + '</small></button>').join('');
+      const subIdx = F.sub >= 0 && root.subs[F.sub] ? F.sub : -1; F.sub = subIdx;
+      const opts = '<option value="-1">' + esc(root.name) + ' の全体(' + members(root.fis, F.ppl).size.toLocaleString() + ')</option>' +
+        root.subs.map((e, k) => '<option value="' + k + '"' + (k === subIdx ? ' selected' : '') + '>' + '　'.repeat(Math.max(0, e.depth - 1)) + esc(e.name) + '(' + members(e.fis, F.ppl).size.toLocaleString() + ')</option>').join('');
+      const cur = subIdx >= 0 ? root.subs[subIdx] : root;
+      Q.$app.innerHTML = '<main>' + tabs('fields') +
+        '<div class="card"><div class="ftabs" role="tablist" aria-label="分野">' + tabsH + '</div>' +
+        (root.subs.length ? '<label for="fsub" style="margin-top:12px">分野を絞る</label><select id="fsub">' + opts + '</select>' : '') +
+        '<input id="fq" class="srch" style="margin-top:10px" type="search" placeholder="この範囲の中を絞り込む" autocomplete="off" value="' + esc(F.q) + '">' +
+        '<label class="chk"><input id="fp" type="checkbox"' + (F.ppl ? ' checked' : '') + '> 人物のノートも含める</label>' +
+        '<div class="row" style="margin-top:8px">' + (cur.di >= 0 ? '<a class="link" href="#/n/' + enc(cur.name) + '" data-n="' + esc(cur.name) + '">' + esc(cur.name) + 'の分野ノートを開く</a>' : '') + '<span class="sub" id="fc"></span></div></div>' +
+        '<div class="card list" id="flist"></div><button class="ghost" id="fmore" hidden>さらに表示</button></main>';
+      Q.bindTabs();
+      const sel = Q.$app.querySelector('.ftab[aria-pressed="true"]'); if (sel && sel.scrollIntoView) sel.scrollIntoView({block: 'nearest', inline: 'center'});
+      const list = document.getElementById('flist'), more = document.getElementById('fmore'), fc = document.getElementById('fc');
+      let ids = [...members(cur.fis, F.ppl)].sort(byJa); const nq = norm(F.q.trim());
+      if (nq) ids = ids.filter(i => { const n = N.list[i]; const nn = n._nn || (n._nn = norm(n.n)); return nn.includes(nq) || (n.a || []).some(a => norm(a).includes(nq)); });
+      const draw = () => {
+        list.innerHTML = ids.length ? ids.slice(0, F.shown).map(fres).join('') : '<p class="sub" style="padding:8px 14px">該当するノートがありません。</p>';
+        fc.textContent = ids.length.toLocaleString() + '件' + (ids.length > F.shown ? '(' + F.shown.toLocaleString() + '件まで表示)' : '');
+        more.hidden = ids.length <= F.shown; more.textContent = 'さらに表示(あと ' + Math.min(200, ids.length - F.shown).toLocaleString() + '件)';
+      };
+      draw();
+      more.onclick = () => { F.shown += 200; draw(); };
+      Q.$app.querySelectorAll('.ftab').forEach(b => b.onclick = () => { F.root = b.dataset.root; F.sub = -1; F.q = ''; F.shown = 100; history.replaceState(null, '', '#/fields/' + enc(F.root)); window.scrollTo(0, 0); render(); });
+      const fs = document.getElementById('fsub'); if (fs) fs.onchange = () => { F.sub = +fs.value; F.shown = 100; render(); };
+      let t; const fq = document.getElementById('fq');
+      fq.oninput = () => { clearTimeout(t); t = setTimeout(() => { F.q = fq.value; F.shown = 100; const pos = fq.selectionStart; render(); const q2 = document.getElementById('fq'); q2.focus(); try { q2.setSelectionRange(pos, pos); } catch (e) {} }, 200); };
+      document.getElementById('fp').onchange = e => { F.ppl = e.target.checked; F.shown = 100; render(); };
+      list.addEventListener('click', e => { if (e.target.closest('a[data-n]')) F.y = window.scrollY; });
+      if (first && F.y) { window.scrollTo(0, F.y); F.y = 0; }
+    }
+  }
+
   /* ---------- 小窓(クイズの途中でノートを開く) ---------- */
   const sheet = {stack: []};
   function wireLinks(root, onNav) {
@@ -220,6 +304,8 @@
   }
 
   function route(h) {
+    const fm = /^#\/fields(?:\/(.*))?$/.exec(h);
+    if (fm) { let nm = ''; try { nm = decodeURIComponent(fm[1] || ''); } catch (e) { nm = fm[1] || ''; } fieldsPage(nm); return; }
     const m = /^#\/n\/(.+)$/.exec(h);
     if (m) { let nm; try { nm = decodeURIComponent(m[1]); } catch (e) { nm = m[1]; } page(nm); } else hub();
   }

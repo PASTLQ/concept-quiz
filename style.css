@@ -99,3 +99,10 @@ summary{cursor:pointer;font-size:14px;color:var(--sub);font-weight:600}
 #browse,#results{display:flex;flex-direction:column;gap:16px}
 #browse[hidden]{display:none}
 .tree summary a{margin-right:2px}
+/* 分野別 */
+.ftabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.ftab{flex:none;font:inherit;font-size:14px;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--fg);cursor:pointer;white-space:nowrap}
+.ftab small{color:var(--sub);font-size:11px;margin-left:2px}
+.ftab[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:700}
+.ftab[aria-pressed="true"] small{color:inherit;opacity:.85}
+.res .badge{font-weight:400;margin-left:6px}
