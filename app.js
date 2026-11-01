@@ -65,10 +65,8 @@
       document.getElementById('pf').onsubmit = ev => { ev.preventDefault(); const v = document.getElementById('pp').value; if (v) res(v); };
     });
   }
-  async function loadData() {
-    try { const r = await fetch('questions.json'); if (r.ok) return await r.json(); } catch (e) {}
-    const r = await fetch('questions.enc'); if (!r.ok) throw new Error('問題データが見つかりません');
-    const enc = await r.json();
+  // 保存済みの鍵で開けなければ、合言葉を聞いて開く
+  async function decryptAny(enc) {
     if (S.meta.key) { try { return await decryptWith(S.meta.key, enc); } catch (e) {} }
     let note = '';
     for (;;) {
@@ -76,6 +74,18 @@
       try { const key = await deriveKey(pass, enc); const data = await decryptWith(key, enc); S.meta.key = key; await saveMeta('key', key); return data; }
       catch (e) { note = '開けませんでした。合言葉を確かめてください。'; }
     }
+  }
+  let fmt = null; // 'json' か 'enc'。最初に見つかった形式を使い続ける(無駄な404を出さない)
+  async function loadAux(base) {
+    if (fmt !== 'enc') { try { const r = await fetch(base + '.json'); if (r.ok) { fmt = 'json'; return await r.json(); } } catch (e) {} }
+    if (fmt === 'json') throw new Error('データが見つかりません(' + base + ')');
+    const r = await fetch(base + '.enc'); if (!r.ok) throw new Error('データが見つかりません(' + base + ')');
+    fmt = 'enc'; return decryptAny(await r.json());
+  }
+  async function loadData() {
+    try { const r = await fetch('questions.json'); if (r.ok) return await r.json(); } catch (e) {}
+    const r = await fetch('questions.enc'); if (!r.ok) throw new Error('問題データが見つかりません');
+    return decryptAny(await r.json());
   }
 
   async function load() {
@@ -198,6 +208,7 @@
     const fopts = '<option value="-1">すべての分野</option>' + S.data.fields.map((f, i) => ({f, i})).sort((a, b) => a.f.localeCompare(b.f, 'ja')).map(o => '<option value="' + o.i + '"' + (o.i === st.field ? ' selected' : '') + '>' + esc(o.f) + '(' + (S.byField.get(o.i) || []).length + ')</option>').join('');
     const seg = (k, v, t) => '<button data-mode="' + v + '" aria-pressed="' + (st.mode === v) + '">' + t + '</button>';
     $app.innerHTML = '<main>' +
+      tabsHTML('quiz') +
       '<div class="top"><h1>概念クイズ</h1><span class="sub">' + S.data.items.length.toLocaleString() + '概念</span></div>' +
       (S.dbOk ? '' : '<div class="notice">この環境では学習記録を保存できません。記録は閉じると消えます。</div>') +
       '<div class="card"><div class="stats"><div><b>' + c.due + '</b><span>復習の期限</span></div><div><b>' + Math.min(quota, c.avail) + '</b><span>今日の新規</span></div><div><b>' + c.learned.toLocaleString() + '</b><span>学習済み</span></div></div>' +
@@ -219,6 +230,7 @@
     document.getElementById('size').onchange = e => { S.settings.size = Math.max(1, Math.min(9999, Math.round(+e.target.value) || 20)); persistSettings(); home(); };
     document.getElementById('unl').onchange = e => { S.settings.unlimited = e.target.checked; persistSettings(); home(); };
     document.getElementById('npd').onchange = e => { S.settings.newPerDay = Math.max(0, Math.min(9999, Math.round(+e.target.value) || 0)); persistSettings(); home(); };
+    bindTabs();
     document.getElementById('go').onclick = startSession;
     document.getElementById('exp').onclick = exportData;
     document.getElementById('imp').onclick = () => document.getElementById('file').click();
@@ -260,9 +272,9 @@
     const fb = document.getElementById('fb'); fb.className = 'fb';
     const label = ok ? '<div class="v ok">正解</div>' : '<div class="v ng">不正解</div>';
     const ans = q.d === 'd' ? '<div>答え: <b>' + esc(q.it.n) + '</b>' + (q.it.a && q.it.a.length ? '<span class="sub">(別名: ' + esc(q.it.a.slice(0, 4).join('、')) + ')</span>' : '') + '</div>' : '';
-    if (cur.redo) { fb.innerHTML = label + ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); return; }
-    if (!ok) { fb.innerHTML = label + ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); record(cur.id, Rating.Again, false); requeue(cur); return; }
-    fb.innerHTML = label + ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); record(cur.id, Rating.Good, true);
+    if (cur.redo) { fb.innerHTML = label + ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); noteLink(q.it.n); return; }
+    if (!ok) { fb.innerHTML = label + ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); noteLink(q.it.n); record(cur.id, Rating.Again, false); requeue(cur); return; }
+    fb.innerHTML = label + ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); noteLink(q.it.n); record(cur.id, Rating.Good, true);
   }
   function reveal() {
     const se = S.session; if (se.answered) return; se.answered = true;
@@ -271,11 +283,17 @@
     const al = it.a && it.a.length ? '<span class="sub">(別名: ' + esc(it.a.slice(0, 4).join('、')) + ')</span>' : '';
     const ans = q.d === 'd' ? '<div class="stem" style="margin:0">' + esc(it.n) + ' ' + al + '</div>' : '<div class="stem" style="margin:0">' + esc(it.d) + '</div>';
     const fb = document.getElementById('fb'); fb.className = 'fb';
-    if (cur.redo) { fb.innerHTML = ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); return; }
+    if (cur.redo) { fb.innerHTML = ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); noteLink(it.n); return; }
     const card = S.cards.get(cur.id) || createEmptyCard(new Date()); const now = new Date(); const pre = sched.repeat(card, now);
     const rb = [[Rating.Again, 'もう一度'], [Rating.Hard, '難しい'], [Rating.Good, '普通'], [Rating.Easy, '簡単']];
     fb.innerHTML = ans + '<div class="sub">思い出せましたか</div><div class="rate four">' + rb.map(r => '<button data-r="' + r[0] + '">' + r[1] + '<small>' + fmtIv(pre[r[0]].card.due, now) + '</small></button>').join('') + '</div>';
+    noteLink(it.n);
     fb.querySelectorAll('[data-r]').forEach(b => b.onclick = () => { const r = +b.dataset.r; record(cur.id, r, r >= Rating.Hard); if (r === Rating.Again) requeue(cur); next(); });
+  }
+  function noteLink(name) {
+    const fb = document.getElementById('fb'); if (!fb || !window.Notes) return;
+    fb.insertAdjacentHTML('beforeend', '<button class="ghost" id="nl">この概念のノートを見る</button>');
+    document.getElementById('nl').onclick = () => window.Notes.openSheet(name);
   }
   function bindNext() { document.getElementById('nx').onclick = next; document.getElementById('nx').focus(); }
   function requeue(cur) { const se = S.session; if (cur.redo) return; const at = Math.min(se.queue.length, se.pos + 5); se.queue.splice(at, 0, {id: cur.id, redo: true}); }
@@ -325,7 +343,7 @@
 
   /* ---------- キー操作 ---------- */
   document.addEventListener('keydown', e => {
-    const se = S.session; if (!se || !se.q || e.metaKey || e.ctrlKey) return;
+    const se = S.session; if (!se || !se.q || e.metaKey || e.ctrlKey || document.querySelector('.sheet')) return;
     if (!se.answered && se.q.flash && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); reveal(); return; }
     if (!se.answered && /^[1-4]$/.test(e.key) && se.q.opts[+e.key - 1]) { answer(+e.key - 1); return; }
     if (se.answered) {
@@ -335,7 +353,25 @@
     }
   });
 
+  /* ---------- タブと画面の切り替え ---------- */
+  function tabsHTML(active) {
+    return '<nav class="tabs" aria-label="画面"><button data-tab="quiz" aria-pressed="' + (active === 'quiz') + '">クイズ</button><button data-tab="notes" aria-pressed="' + (active === 'notes') + '">ノート</button></nav>';
+  }
+  function bindTabs() {
+    $app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
+      const to = b.dataset.tab === 'notes' ? '#/notes' : '';
+      if (to === '' && !location.hash.startsWith('#/')) { home(); return; }
+      if (location.hash === to) route(); else location.hash = to;
+    });
+  }
+  function route() {
+    const h = location.hash;
+    if (h.startsWith('#/')) window.Notes.route(h); else home();
+  }
+  window.Q = {S, $app, esc, shuffle, home, loadAux, saveMeta, tabsHTML, bindTabs};
+  window.addEventListener('hashchange', route);
+
   /* ---------- 起動 ---------- */
-  load().then(home).catch(e => { $app.innerHTML = '<main><div class="notice">問題データを読み込めませんでした。(' + esc(e.message) + ')</div></main>'; });
+  load().then(route).catch(e => { $app.innerHTML = '<main><div class="notice">問題データを読み込めませんでした。(' + esc(e.message) + ')</div></main>'; });
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
