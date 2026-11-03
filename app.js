@@ -59,8 +59,8 @@
   function askPassphrase(note) {
     return new Promise(res => {
       $app.innerHTML = '<main><h1>概念クイズ</h1><form class="card" id="pf"><h2>合言葉</h2><p class="sub" style="margin:0 0 10px">問題データは暗号化されています。合言葉を入れてください。この端末では、次回から聞きません。</p>' +
-        '<label for="pp">合言葉</label><input id="pp" type="password" autocomplete="current-password" style="width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font:inherit">' +
-        (note ? '<p class="notice" style="margin:10px 0 0">' + esc(note) + '</p>' : '') + '<button class="primary" style="margin-top:12px" id="pb">開く</button></form></main>';
+        '<label for="pp">合言葉</label><input id="pp" type="password" autocomplete="current-password">' +
+        (note ? '<p class="notice" style="margin:10px 0 0">' + esc(note) + '</p>' : '') + '<button class="btn btn-primary btn-block" style="margin-top:12px" id="pb">開く</button></form></main>';
       document.getElementById('pp').focus();
       document.getElementById('pf').onsubmit = ev => { ev.preventDefault(); const v = document.getElementById('pp').value; if (v) res(v); };
     });
@@ -178,7 +178,7 @@
       const due = window.Cloze.dueKeys(st, now); q = due.slice(0, unl ? 40 : st.size);
       const room = unl ? 40 - q.length : Math.min(st.size - q.length, newQuota());
       if (room > 0) q = q.concat(await window.Cloze.newKeys(st, room, new Set(q)));
-    } catch (e) { $app.innerHTML = '<main><div class="notice">問題を用意できませんでした。(' + esc(e.message) + ')</div><button class="ghost" id="hm">ホームへ</button></main>'; document.getElementById('hm').onclick = home; return; }
+    } catch (e) { $app.innerHTML = '<main><div class="notice">問題を用意できませんでした。(' + esc(e.message) + ')</div><button class="btn" id="hm">ホームへ</button></main>'; document.getElementById('hm').onclick = home; return; }
     if (!q.length) { home(); return; }
     S.session = {queue: q.map(id => ({id, redo: false})), pos: 0, total: q.length, correct: 0, wrong: 0, newDone: 0, q: null, answered: false,
                  fieldSel: st.field, unlimited: unl, seen: new Set(q), exhausted: false, pending: null};
@@ -250,9 +250,9 @@
       '<div class="row" style="margin-top:12px;align-items:flex-end"><div class="grow"><label for="size">1回の問題数</label><input id="size" type="number" min="1" max="9999" value="' + st.size + '"' + (st.unlimited ? ' disabled' : '') + '></div>' +
       '<div class="grow"><label for="npd">新規の上限(1日)</label><input id="npd" type="number" min="0" max="9999" value="' + st.newPerDay + '"' + (st.unlimited ? ' disabled' : '') + '></div></div>' +
       '<label class="chk"><input id="unl" type="checkbox"' + (st.unlimited ? ' checked' : '') + '> 上限なし(やめるまで続ける。新規の上限も使いません)</label></div>' +
-      '<button class="primary" id="go"' + (will && !c.loading ? '' : ' disabled') + '>' + (c.loading ? 'ノートを読み込んでいます…' : will ? '始める(' + (st.unlimited ? '上限なし・' : '') + will.toLocaleString() + '問)' : '今日はここまで') + '</button>' +
+      '<button class="btn btn-primary btn-block" id="go"' + (will && !c.loading ? '' : ' disabled') + '>' + (c.loading ? 'ノートを読み込んでいます…' : will ? '始める(' + (st.unlimited ? '上限なし・' : '') + will.toLocaleString() + '問)' : '今日はここまで') + '</button>' +
       '<div class="card"><h2>記録</h2><p class="sub" style="margin:0 0 10px">学習記録はこの端末の中だけに保存されます。端末を変えるときは、書き出して取り込んでください。</p>' +
-      '<div class="row"><button class="ghost" id="exp">書き出し</button><button class="ghost" id="imp">取り込み</button><input type="file" id="file" accept="application/json" hidden></div><p class="sub" id="msg" style="margin:8px 0 0"></p></div>' +
+      '<div class="row"><button class="btn" id="exp">書き出し</button><button class="btn" id="imp">取り込み</button><input type="file" id="file" accept="application/json" hidden></div><p class="sub" id="msg" style="margin:8px 0 0"></p></div>' +
       '</main>';
     $app.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { S.settings.mode = b.dataset.mode; persistSettings(); home(); });
     $app.querySelectorAll('[data-method]').forEach(b => b.onclick = () => { S.settings.method = b.dataset.method; persistSettings(); home(); });
@@ -284,7 +284,7 @@
       (se.unlimited ? '' : '<div class="bar"><i style="width:' + (se.pos / se.queue.length * 100) + '%"></i></div>') +
       '<div class="card"><div class="tag">' + esc(q.field) + ' ・ ' + (q.flash ? '単語帳 ・ ' : '') + (q.d === 'd' ? '定義から概念' : '概念から定義') + (cur.redo ? ' ・ もう一度(記録なし)' : '') + '</div>' +
       '<p class="stem">' + esc(q.stem).replace(/\n/g, '<br>') + '</p>' +
-      (q.flash ? '<button class="primary" id="show">答えを見る</button>' : '') +
+      (q.flash ? '<button class="btn btn-primary btn-block" id="show">答えを見る</button>' : '') +
       '<div class="opts">' + q.opts.map((o, k) => '<button class="opt" data-k="' + k + '"><b>' + (k + 1) + '</b><span>' + esc(q.d === 'd' ? o.n : o.d) + '<small hidden></small></span></button>').join('') + '</div>' +
       '<div id="fb"></div></div></main>';
     $app.querySelectorAll('.opt').forEach(b => b.onclick = () => answer(+b.dataset.k));
@@ -303,9 +303,9 @@
     const fb = document.getElementById('fb'); fb.className = 'fb';
     const label = ok ? '<div class="v ok">正解</div>' : '<div class="v ng">不正解</div>';
     const ans = q.d === 'd' ? '<div>答え: <b>' + esc(q.it.n) + '</b>' + (q.it.a && q.it.a.length ? '<span class="sub">(別名: ' + esc(q.it.a.slice(0, 4).join('、')) + ')</span>' : '') + '</div>' : '';
-    if (cur.redo) { fb.innerHTML = label + ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); noteLink(q.it.n); return; }
-    if (!ok) { fb.innerHTML = label + ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); noteLink(q.it.n); record(cur.id, Rating.Again, false); requeue(cur); return; }
-    fb.innerHTML = label + ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); noteLink(q.it.n); record(cur.id, Rating.Good, true);
+    if (cur.redo) { fb.innerHTML = label + ans + '<button class="btn btn-primary btn-block" id="nx">次へ</button>'; bindNext(); noteLink(q.it.n); return; }
+    if (!ok) { fb.innerHTML = label + ans + '<button class="btn btn-primary btn-block" id="nx">次へ</button>'; bindNext(); noteLink(q.it.n); record(cur.id, Rating.Again, false); requeue(cur); return; }
+    fb.innerHTML = label + ans + '<button class="btn btn-primary btn-block" id="nx">次へ</button>'; bindNext(); noteLink(q.it.n); record(cur.id, Rating.Good, true);
   }
   function reveal() {
     const se = S.session; if (se.answered) return; se.answered = true;
@@ -314,7 +314,7 @@
     const al = it.a && it.a.length ? '<span class="sub">(別名: ' + esc(it.a.slice(0, 4).join('、')) + ')</span>' : '';
     const ans = q.d === 'd' ? '<div class="stem" style="margin:0">' + esc(it.n) + ' ' + al + '</div>' : '<div class="stem" style="margin:0">' + esc(it.d) + '</div>';
     const fb = document.getElementById('fb'); fb.className = 'fb';
-    if (cur.redo) { fb.innerHTML = ans + '<button class="primary" id="nx">次へ</button>'; bindNext(); noteLink(it.n); return; }
+    if (cur.redo) { fb.innerHTML = ans + '<button class="btn btn-primary btn-block" id="nx">次へ</button>'; bindNext(); noteLink(it.n); return; }
     const card = S.cards.get(cur.id) || createEmptyCard(new Date()); const now = new Date(); const pre = sched.repeat(card, now);
     const rb = [[Rating.Again, 'もう一度'], [Rating.Hard, '難しい'], [Rating.Good, '普通'], [Rating.Easy, '簡単']];
     fb.innerHTML = ans + '<div class="sub">思い出せましたか</div><div class="rate four">' + rb.map(r => '<button data-r="' + r[0] + '">' + r[1] + '<small>' + fmtIv(pre[r[0]].card.due, now) + '</small></button>').join('') + '</div>';
@@ -323,7 +323,7 @@
   }
   function noteLink(name) {
     const fb = document.getElementById('fb'); if (!fb || !window.Notes) return;
-    fb.insertAdjacentHTML('beforeend', '<button class="ghost" id="nl">この概念のノートを見る</button>');
+    fb.insertAdjacentHTML('beforeend', '<button class="btn" id="nl">この概念のノートを見る</button>');
     document.getElementById('nl').onclick = () => window.Notes.openSheet(name);
   }
   function bindNext() { document.getElementById('nx').onclick = next; document.getElementById('nx').focus(); }
@@ -361,7 +361,7 @@
       '<h2 class="czt">' + esc(q.note) + '</h2>' +
       q.blocks.map(b => b.head ? '<h3 class="czh">' + blk(b.segs) + '</h3>' : '<p class="cz">' + blk(b.segs) + '</p>').join('') +
       '<div class="czp" id="panel"><div class="bank">' + q.bank.map((w, k) => '<button class="word" data-w="' + k + '">' + esc(w.w) + '</button>').join('') + '</div>' +
-      '<button class="primary" id="chk" disabled>答え合わせ</button></div>' +
+      '<button class="btn btn-primary btn-block" id="chk" disabled>答え合わせ</button></div>' +
       '<div id="fb" class="fb" hidden></div></div></main>';
     document.getElementById('quit').onclick = quit;
     const blanks = [...$app.querySelectorAll('.blank')], words = [...$app.querySelectorAll('.word')], chk = document.getElementById('chk');
@@ -385,7 +385,7 @@
       document.getElementById('panel').hidden = true;
       const wrong = res.map((r, i) => r ? '' : '<li>(' + (i + 1) + ') 「' + esc(q.bank[slots[i]].w) + '」→ 正しくは「<b>' + esc(q.answers[i]) + '</b>」</li>').join('');
       const fb = document.getElementById('fb'); fb.hidden = false;
-      fb.innerHTML = '<div class="v ' + (ok ? 'ok' : 'ng') + '">' + (bad === 0 ? '全問正解' : (nb - bad) + ' / ' + nb + ' 正解' + (ok ? '(おしい)' : '')) + '</div>' + (wrong ? '<ul class="wr">' + wrong + '</ul>' : '') + '<button class="primary" id="nx">次へ</button>';
+      fb.innerHTML = '<div class="v ' + (ok ? 'ok' : 'ng') + '">' + (bad === 0 ? '全問正解' : (nb - bad) + ' / ' + nb + ' 正解' + (ok ? '(おしい)' : '')) + '</div>' + (wrong ? '<ul class="wr">' + wrong + '</ul>' : '') + '<button class="btn btn-primary btn-block" id="nx">次へ</button>';
       bindNext(); noteLink(q.note); fb.scrollIntoView({block: 'nearest', behavior: 'smooth'});
       if (cur.redo) return;
       record(cur.id, rating, ok); if (rating === Rating.Again) requeue(cur);
@@ -396,7 +396,7 @@
   function finish() {
     const se = S.session; const n = se.correct + se.wrong;
     $app.innerHTML = '<main><h1>おつかれさまでした</h1><div class="card"><div class="score">' + se.correct + ' / ' + n + '</div><p class="sub" style="margin:4px 0 0">新しく覚え始めた概念: ' + se.newDone + '件</p></div>' +
-      '<button class="primary" id="more">続ける</button><button class="ghost" id="hm">ホームへ</button></main>';
+      '<button class="btn btn-primary btn-block" id="more">続ける</button><button class="btn" id="hm">ホームへ</button></main>';
     document.getElementById('hm').onclick = home; document.getElementById('more').onclick = () => { S.session = null; startSession(); if (!S.session) home(); };
   }
 

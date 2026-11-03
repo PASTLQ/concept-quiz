@@ -105,7 +105,7 @@
       if (mem.length) h += '<details class="sec"><summary>この分野の概念(' + mem.length + ')</summary><input class="flt" type="search" placeholder="この分野の中を絞り込む" data-flt><div class="chips big" data-list>' + chips(mem) + '</div></details>';
     }
     const bl = (n.bl || []).slice().sort(byJa);
-    if (bl.length) h += '<details class="sec"><summary>このノートにリンクしているノート(' + bl.length + ')</summary><div class="chips big" data-list>' + chips(bl.slice(0, 80)) + '</div>' + (bl.length > 80 ? '<button class="ghost" data-more>残り' + (bl.length - 80) + '件も表示</button>' : '') + '</details>';
+    if (bl.length) h += '<details class="sec"><summary>このノートにリンクしているノート(' + bl.length + ')</summary><div class="chips big" data-list>' + chips(bl.slice(0, 80)) + '</div>' + (bl.length > 80 ? '<button class="btn" data-more>残り' + (bl.length - 80) + '件も表示</button>' : '') + '</details>';
     return h;
   }
   function wireNote(root, n) {
@@ -160,7 +160,7 @@
     const recent = (S.meta.recent || []).map(x => N.byName.get(x)).filter(i => i !== undefined);
     Q.$app.innerHTML = '<main>' + tabs('notes') +
       '<div class="card"><input id="q" class="srch" type="search" placeholder="概念・分野・人物を検索(別名も対象)" autocomplete="off"><label class="chk"><input id="full" type="checkbox"> 本文も検索する</label>' +
-      '<div class="row" style="margin-top:10px"><button class="ghost" id="rnd">ランダムに開く</button><span class="sub">' + N.list.length.toLocaleString() + '件</span></div></div>' +
+      '<div class="row" style="margin-top:10px"><button class="btn" id="rnd">ランダムに開く</button><span class="sub">' + N.list.length.toLocaleString() + '件</span></div></div>' +
       '<div id="results"></div><div id="browse">' +
       (recent.length ? '<div class="card"><h2>最近見たノート</h2><div class="chips">' + chips(recent) + '</div></div>' : '') +
       '<div class="card"><h2>分野から探す</h2><div class="tree">' + tree() + '</div></div></div></main>';
@@ -241,7 +241,7 @@
     window.scrollTo(0, 0); render(true);
     function render(first) {
       const root = T.roots.find(r => r.name === F.root);
-      const tabsH = T.roots.map(r => '<button class="ftab" data-root="' + esc(r.name) + '" aria-pressed="' + (r.name === F.root) + '">' + esc(r.name) + ' <small>' + members(r.fis, F.ppl).size.toLocaleString() + '</small></button>').join('');
+      const tabsH = T.roots.map(r => '<button class="chip ftab" data-root="' + esc(r.name) + '" aria-pressed="' + (r.name === F.root) + '">' + esc(r.name) + ' <small>' + members(r.fis, F.ppl).size.toLocaleString() + '</small></button>').join('');
       const subIdx = F.sub >= 0 && root.subs[F.sub] ? F.sub : -1; F.sub = subIdx;
       const opts = '<option value="-1">' + esc(root.name) + ' の全体(' + members(root.fis, F.ppl).size.toLocaleString() + ')</option>' +
         root.subs.map((e, k) => '<option value="' + k + '"' + (k === subIdx ? ' selected' : '') + '>' + '　'.repeat(Math.max(0, e.depth - 1)) + esc(e.name) + '(' + members(e.fis, F.ppl).size.toLocaleString() + ')</option>').join('');
@@ -252,7 +252,7 @@
         '<input id="fq" class="srch" style="margin-top:10px" type="search" placeholder="この範囲の中を絞り込む" autocomplete="off" value="' + esc(F.q) + '">' +
         '<label class="chk"><input id="fp" type="checkbox"' + (F.ppl ? ' checked' : '') + '> 人物のノートも含める</label>' +
         '<div class="row" style="margin-top:8px">' + (cur.di >= 0 ? '<a class="link" href="#/n/' + enc(cur.name) + '" data-n="' + esc(cur.name) + '">' + esc(cur.name) + 'の分野ノートを開く</a>' : '') + '<span class="sub" id="fc"></span></div></div>' +
-        '<div class="card list" id="flist"></div><button class="ghost" id="fmore" hidden>さらに表示</button></main>';
+        '<div class="card list" id="flist"></div><button class="btn" id="fmore" hidden>さらに表示</button></main>';
       Q.bindTabs();
       const sel = Q.$app.querySelector('.ftab[aria-pressed="true"]'); if (sel && sel.scrollIntoView) sel.scrollIntoView({block: 'nearest', inline: 'center'});
       const list = document.getElementById('flist'), more = document.getElementById('fmore'), fc = document.getElementById('fc');
