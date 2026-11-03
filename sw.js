@@ -1,4 +1,4 @@
-const CACHE = 'concept-quiz-v9';
+const CACHE = 'concept-quiz-v10';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'notes.js', 'cloze.js', 'fsrs.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 const DATA = ['questions.json', 'questions.enc']; // どちらか一方だけがある
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(async c => { await c.addAll(FILES); await Promise.all(DATA.map(f => c.add(f).catch(() => {}))); }).then(() => self.skipWaiting())); });
