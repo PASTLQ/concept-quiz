@@ -458,9 +458,12 @@
     view('<header class="head"><h1 class="title">記録</h1></header>' +
       '<section class="figs"><div class="fig"><b>' + s.learned.toLocaleString() + '</b><span>学習済み</span></div><div class="fig"><b>' + s.recent.toLocaleString() + '</b><span>7日間の回答</span></div><div class="fig"><b>' + (s.rate === null ? '–' : s.rate + '<small style="font-size:var(--t-md)">%</small>') + '</b><span>7日間の正答率</span></div></section>' +
       '<section><h2 class="sec-h">直近14日の回答数</h2><div class="days" role="img" aria-label="直近14日の回答数。合計' + total + '問、最も多い日は' + (total ? max : 0) + '問">' + days.map(n => '<i class="' + (n ? '' : 'z') + '" style="height:' + (n ? Math.max(8, n / max * 100) : 0) + '%"></i>').join('') + '</div><div class="days-x" aria-hidden="true"><span>' + esc(first) + '</span><span>今日</span></div></section>' +
+      '<section class="stack"><h2 class="sec-h" style="margin:0">表示</h2><div class="seg" role="group" aria-label="画面の明るさ" id="thm"><button data-th="auto" aria-pressed="false">自動</button><button data-th="light" aria-pressed="false">ライト</button><button data-th="dark" aria-pressed="false">ダーク</button></div><p class="para">「自動」は、端末の設定に合わせます。</p></section>' +
       '<section class="stack"><h2 class="sec-h" style="margin:0">データ</h2><p class="para">学習記録はこの端末の中だけに保存されます。端末を変えるときは、書き出して、新しい端末で取り込んでください。</p>' +
       '<div class="row"><button class="btn" id="exp">書き出し</button><button class="btn" id="imp">取り込み</button><input type="file" id="file" accept="application/json" hidden></div><p class="para" id="msg" role="status"></p></section>' +
       '<p class="para">収録 ' + S.data.items.length.toLocaleString() + ' 概念</p>', 'log');
+    const th = document.getElementById('thm'), curTh = window.cqTheme ? window.cqTheme.get() : 'auto';
+    th.querySelectorAll('[data-th]').forEach(b => { b.setAttribute('aria-pressed', b.dataset.th === curTh); b.onclick = () => { if (window.cqTheme) window.cqTheme.set(b.dataset.th); th.querySelectorAll('[data-th]').forEach(x => x.setAttribute('aria-pressed', x === b)); }; });
     document.getElementById('exp').onclick = exportData;
     document.getElementById('imp').onclick = () => document.getElementById('file').click();
     document.getElementById('file').onchange = importData;

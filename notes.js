@@ -94,24 +94,27 @@
       if (pi !== undefined && pi !== i && N.list[pi].t === 'd') { (kids.get(pi) || kids.set(pi, []).get(pi)).push(i); hasParent.add(i); }
     }));
     const covered = new Set();
-    const mk = (i, depth) => ({name: N.list[i].n, di: i, depth, fis: fieldOf.has(N.list[i].n) ? [fieldOf.get(N.list[i].n)] : []});
+    const mk = (i, depth) => { const own = fieldOf.has(N.list[i].n) ? [fieldOf.get(N.list[i].n)] : []; return {name: N.list[i].n, di: i, depth, fis: own.slice(), own, children: []}; };
     const roots = discs.filter(i => !hasParent.has(i)).sort(byJa).map(ri => {
       const root = mk(ri, 0), subs = [], seen = new Set([ri]);
       const walk = (i, depth, owner) => (kids.get(i) || []).slice().sort(byJa).forEach(k => {
         if (seen.has(k)) return; seen.add(k);
-        const e = mk(k, depth); subs.push(e); walk(k, depth + 1, e);
+        const e = mk(k, depth); subs.push(e); owner.children.push(e); walk(k, depth + 1, e);
         owner.fis.push(...e.fis);
       });
       walk(ri, 1, root); root.subs = subs; return root;
     });
     roots.forEach(r => { r.fis.forEach(f => covered.add(f)); });
     // 分野ノートが無い分野(概念側にだけ書かれている分野)は「その他」にまとめる
-    const orph = []; N.fields.forEach((f, fi) => { if (!covered.has(fi) && (N.members.get(fi) || []).length) orph.push({name: f, di: -1, depth: 1, fis: [fi]}); });
+    const orph = []; N.fields.forEach((f, fi) => { if (!covered.has(fi) && (N.members.get(fi) || []).length) orph.push({name: f, di: -1, depth: 1, fis: [fi], own: [fi], children: []}); });
     orph.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
-    if (orph.length) roots.push({name: 'その他', di: -1, depth: 0, fis: orph.map(o => o.fis[0]), subs: orph});
+    if (orph.length) roots.push({name: 'その他', di: -1, depth: 0, fis: orph.map(o => o.fis[0]), own: [], children: orph, subs: orph});
     return (DT = {roots});
   }
-  const F = {root: null, sub: -1, q: '', ppl: false, shown: 100, y: 0};
+  const F = {ppl: false, y: 0, open: new Set(), lim: new Map(), focus: null};
+  try { (JSON.parse(localStorage.getItem('cq-open') || '[]') || []).forEach(k => F.open.add(k)); F.ppl = localStorage.getItem('cq-ppl') === '1'; } catch (e) {}
+  const saveOpen = () => { try { localStorage.setItem('cq-open', JSON.stringify([...F.open])); localStorage.setItem('cq-ppl', F.ppl ? '1' : '0'); } catch (e) {} };
+  const LIM = 80;
   const members = (fis, ppl) => {
     const set = new Set(); fis.forEach(fi => (N.members.get(fi) || []).forEach(i => { if (ppl || N.list[i].t === 'c') set.add(i); }));
     return set;
@@ -175,21 +178,22 @@
   }
   function resItem(i, withField) {
     const n = N.list[i]; const fl = n.t === 'd' ? '分野' : (n.f && n.f.length ? N.fields[n.f[0]] : TYPE[n.t]);
-    return '<a class="res" href="#/n/' + enc(n.n) + '" data-n="' + esc(n.n) + '"><span class="r1"><b>' + esc(n.n) + '</b>' + (withField === false ? (n.t === 'p' ? '<span class="f">人物</span>' : '') : '<span class="f">' + esc(fl) + '</span>') + '</span><span class="s">' + esc(snippet(n, 70)) + '</span></a>';
+    return '<a class="res" href="#/n/' + enc(n.n) + '" data-n="' + esc(n.n) + '"><span class="r1"><b>' + esc(n.n) + '</b>' + (withField === false ? (n.t === 'p' ? '<span class="f">人物</span>' : '') : '<span class="f">' + esc(fl) + '</span>') + '</span></a>';
   }
   async function hub() {
     const my = ++token; loadingView();
     try { await ensure(); } catch (e) { if (my === token) failView('ノートのデータを読み込めませんでした。', e); return; }
     if (my !== token) return;
-    const T = dtree();
+    const T = dtree(); if (!NODE.size) indexTree(T);
+    if (F.focus) { const r = NODE.get(F.focus); if (r) { F.open.add(r.key); saveOpen(); } }
     const recent = (S.meta.recent || []).map(x => N.byName.get(x)).filter(i => i !== undefined).slice(0, 12);
     view('<header class="head"><h1 class="title">探す</h1><button class="btn btn-sm" id="rnd">ランダム</button></header>' +
       '<div class="stack"><div class="search"><input id="q" class="srch" type="search" placeholder="概念・分野・人物を検索" aria-label="概念・分野・人物を検索" autocomplete="off" enterkeyhint="search"></div>' +
       '<div class="row"><button class="chip" id="full" aria-pressed="false">本文も検索する</button><span class="muted small">別名も対象になります</span></div></div>' +
       '<div id="results" class="stack" role="region" aria-live="polite"></div>' +
-      '<div id="browse" class="stack" style="gap:var(--s5)">' +
+      '<div id="browse" class="stack" style="gap:var(--s4)">' +
       (recent.length ? '<section><h2 class="sec-h">最近見たノート</h2><div class="chips scroll-x">' + chips(recent) + '</div></section>' : '') +
-      '<section><h2 class="sec-h">学問</h2><nav class="rows" aria-label="学問">' + T.roots.map(r => '<a class="row-link" href="#/fields/' + enc(r.name) + '"><span>' + esc(r.name) + '</span><span class="n">' + members(r.fis, false).size.toLocaleString() + '</span></a>').join('') + '</nav></section>' +
+      '<section class="stack"><div class="toolbar"><h2 class="sec-h" style="margin:0;flex:1">学問と分野</h2><button class="chip" id="tppl" aria-pressed="' + F.ppl + '">人物も表示</button><button class="btn btn-quiet btn-sm" id="tclose" hidden>すべて閉じる</button></div><nav class="tree" id="tree" aria-label="学問と分野">' + treeHTML(T) + '</nav></section>' +
       '<p class="para">収録 ' + N.list.length.toLocaleString() + ' 件</p></div>');
     const qi = document.getElementById('q'), fu = document.getElementById('full'), rs = document.getElementById('results'), br = document.getElementById('browse'); let t, runId = 0, full = false;
     const run = async () => {
@@ -200,7 +204,10 @@
     qi.oninput = () => { clearTimeout(t); t = setTimeout(run, 120); };
     fu.onclick = () => { full = !full; fu.setAttribute('aria-pressed', full); run(); };
     document.getElementById('rnd').onclick = () => { const cs = N.list.map((n, i) => i).filter(i => N.list[i].t === 'c'); location.hash = '#/n/' + enc(N.list[cs[Math.floor(Math.random() * cs.length)]].n); };
-    wireLinks(Q.$app, null);
+    wireLinks(Q.$app, null); wireTree(Q.$app);
+    if (F.focus) { const el = [...document.querySelectorAll('.tree > .node')].find(x => x.dataset.k === F.focus); F.focus = null; if (el) el.scrollIntoView({block: 'start'}); }
+    else if (F.y) { window.scrollTo(0, F.y); F.y = 0; }
+    else window.scrollTo(0, 0);
   }
 
   /* ---------- 画面: ノート本体 ---------- */
@@ -218,48 +225,55 @@
   }
 
 
-  function fres(i) {
-    const n = N.list[i], fl = n.t === 'p' ? '人物' : (n.f || []).slice(0, 2).map(f => N.fields[f]).join('、') + ((n.f || []).length > 2 ? '…' : '');
-    return '<a class="res" href="#/n/' + enc(n.n) + '" data-n="' + esc(n.n) + '"><span class="r1"><b>' + esc(n.n) + '</b><span class="f">' + esc(fl) + '</span></span><span class="s">' + esc(snippet(n, 70)) + '</span></a>';
+  /* ---------- 学問ツリー(開閉して、学問 → 分野 → 概念を1画面で見る) ---------- */
+  const NODE = new Map();
+  function indexTree(T) {
+    NODE.clear();
+    const walk = (n, path) => { n.key = path.join('/'); NODE.set(n.key, n); n.children.forEach(c => walk(c, path.concat(c.name))); };
+    T.roots.forEach(r => walk(r, [r.name]));
   }
-  async function fieldsPage(rootName) {
-    const my = ++token; loadingView();
-    try { await ensure(); } catch (e) { if (my === token) failView('ノートのデータを読み込めませんでした。', e); return; }
-    if (my !== token) return;
-    const T = dtree(); const root = T.roots.find(r => r.name === rootName);
-    if (!root) { hub(); return; }
-    if (F.root !== root.name) { F.root = root.name; F.sub = -1; F.q = ''; F.shown = 100; }
-    window.scrollTo(0, 0); render(true);
-    function render(first) {
-      const subIdx = F.sub >= 0 && root.subs[F.sub] ? F.sub : -1; F.sub = subIdx;
-      const opts = '<option value="-1">' + esc(root.name) + ' の全体(' + members(root.fis, F.ppl).size.toLocaleString() + ')</option>' +
-        root.subs.map((e, k) => '<option value="' + k + '"' + (k === subIdx ? ' selected' : '') + '>' + '　'.repeat(Math.max(0, e.depth - 1)) + esc(e.name) + '(' + members(e.fis, F.ppl).size.toLocaleString() + ')</option>').join('');
-      const cur = subIdx >= 0 ? root.subs[subIdx] : root;
-      view(backBar('#/notes', '探す') + '<header class="head"><h1 class="title">' + esc(root.name) + '</h1><span class="aside" id="fc"></span></header>' +
-        '<div class="stack">' + (root.subs.length ? '<div class="field"><label for="fsub">分野を絞る</label><div class="sel"><select id="fsub">' + opts + '</select></div></div>' : '') +
-        '<div class="search"><input id="fq" class="srch" type="search" placeholder="この範囲の中を絞り込む" aria-label="この範囲の中を絞り込む" autocomplete="off" value="' + esc(F.q) + '"></div>' +
-        '<div class="row"><button class="chip" id="fp" aria-pressed="' + F.ppl + '">人物も含める</button>' + (cur.di >= 0 ? '<a class="btn btn-quiet btn-sm" href="#/n/' + enc(cur.name) + '" data-n="' + esc(cur.name) + '">' + esc(cur.name) + 'のノート</a>' : '') + '</div></div>' +
-        '<div class="rows" id="flist"></div><button class="btn btn-block" id="fmore" hidden>さらに表示</button>');
-      document.getElementById('bk').onclick = () => { location.hash = '#/notes'; };
-      const list = document.getElementById('flist'), more = document.getElementById('fmore'), fc = document.getElementById('fc');
-      const all = [...members(cur.fis, F.ppl)].sort(byJa); let ids = all;
-      const draw = () => {
-        const nq = norm(F.q.trim());
-        ids = nq ? all.filter(i => { const n = N.list[i]; const nn = n._nn || (n._nn = norm(n.n)); return nn.includes(nq) || (n.a || []).some(a => norm(a).includes(nq)); }) : all;
-        list.innerHTML = ids.length ? ids.slice(0, F.shown).map(fres).join('') : '<p class="para" style="padding:var(--s3) 0">該当するノートがありません。</p>';
-        fc.textContent = ids.length.toLocaleString() + '件';
-        more.hidden = ids.length <= F.shown; more.textContent = 'さらに表示(あと ' + Math.min(200, ids.length - F.shown).toLocaleString() + '件)';
-      };
-      draw();
-      more.onclick = () => { F.shown += 200; draw(); };
-      const fs = document.getElementById('fsub'); if (fs) fs.onchange = () => { F.sub = +fs.value; F.shown = 100; render(); };
-      let t; const fq = document.getElementById('fq');
-      fq.oninput = () => { clearTimeout(t); t = setTimeout(() => { F.q = fq.value; F.shown = 100; draw(); }, 150); };
-      document.getElementById('fp').onclick = () => { F.ppl = !F.ppl; F.shown = 100; render(); };
-      list.addEventListener('click', e => { if (e.target.closest('a[data-n]')) F.y = window.scrollY; });
-      if (first && F.y) { window.scrollTo(0, F.y); F.y = 0; }
+  const crow = i => { const n = N.list[i]; return '<a class="crow' + (n.t === 'p' ? ' p' : '') + '" href="#/n/' + enc(n.n) + '" data-n="' + esc(n.n) + '">' + esc(n.n) + '</a>'; };
+  function nodeHTML(n, d) {
+    const cnt = members(n.fis, F.ppl).size; if (!cnt) return '';
+    const open = F.open.has(n.key);
+    return '<div class="node d' + Math.min(d, 2) + '" data-k="' + esc(n.key) + '" data-d="' + d + '"><div class="nh"><button class="tg" aria-expanded="' + open + '" data-t="' + esc(n.key) + '"><span class="nm">' + esc(n.name) + '</span><span class="n">' + cnt.toLocaleString() + '</span></button>' +
+      (n.di >= 0 && d === 0 ? '<a class="nlink" href="#/n/' + enc(n.name) + '" data-n="' + esc(n.name) + '" aria-label="' + esc(n.name) + 'のノートを開く">ノート</a>' : '') + '</div>' + (open ? kidsHTML(n, d) : '') + '</div>';
+  }
+  function kidsHTML(n, d) {
+    const kids = n.children.map(c => nodeHTML(c, d + 1)).join('');
+    const own = [...members(n.own, F.ppl)].sort(byJa), lim = F.lim.get(n.key) || LIM;
+    let h = '<div class="kids">' + (d > 0 && n.di >= 0 ? '<a class="nlink2" href="#/n/' + enc(n.name) + '" data-n="' + esc(n.name) + '">この分野のノートを開く</a>' : '') + kids;
+    if (own.length) {
+      if (kids) h += '<div class="sub-h">この分野に直接属する概念(' + own.length.toLocaleString() + ')</div>';
+      h += '<div class="clist">' + own.slice(0, lim).map(crow).join('') + '</div>';
+      if (own.length > lim) h += '<button class="btn btn-sm more" data-more="' + esc(n.key) + '">残り' + (own.length - lim).toLocaleString() + '件を表示</button>';
     }
+    if (!kids && !own.length) h += '<p class="para" style="padding:8px 6px">概念がありません。</p>';
+    return h + '</div>';
   }
+  const treeHTML = T => T.roots.map(r => nodeHTML(r, 0)).join('');
+  function wireTree(root) {
+    const tree = root.querySelector('#tree'), closeAll = root.querySelector('#tclose'), ppl = root.querySelector('#tppl');
+    const sync = () => { if (closeAll) closeAll.hidden = !F.open.size; };
+    const redraw = el => {
+      const n = NODE.get(el.dataset.k), t = document.createElement('div'); t.innerHTML = nodeHTML(n, +el.dataset.d);
+      const nw = t.firstElementChild; el.replaceWith(nw); return nw;
+    };
+    tree.addEventListener('click', e => {
+      const a = e.target.closest('a[data-n]'); if (a) { F.y = window.scrollY; return; }
+      const tg = e.target.closest('[data-t]');
+      if (tg) {
+        const k = tg.dataset.t; F.open.has(k) ? F.open.delete(k) : F.open.add(k); saveOpen(); sync();
+        const nw = redraw(tg.closest('.node')), b = nw.querySelector('[data-t]'); if (b) b.focus({preventScroll: true}); return;
+      }
+      const mb = e.target.closest('[data-more]');
+      if (mb) { const k = mb.dataset.more; F.lim.set(k, (F.lim.get(k) || LIM) + 400); const nw = redraw(mb.closest('.node')); const nb = nw.querySelector('.crow'); return; }
+    });
+    if (closeAll) closeAll.onclick = () => { F.open.clear(); saveOpen(); tree.innerHTML = treeHTML(dtree()); sync(); };
+    if (ppl) ppl.onclick = () => { F.ppl = !F.ppl; saveOpen(); ppl.setAttribute('aria-pressed', F.ppl); tree.innerHTML = treeHTML(dtree()); };
+    sync();
+  }
+  async function fieldsPage(rootName) { F.focus = rootName; await hub(); }
 
   /* ---------- 小窓(クイズの途中でノートを開く) ---------- */
   function wireLinks(root, onNav) {
