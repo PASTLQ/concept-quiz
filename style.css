@@ -299,3 +299,25 @@ details.sec input[type=search] { margin: var(--s2) 0; }
 .nlink2 { display: inline-flex; align-items: center; min-height: 36px; margin: 2px 0 0 6px; padding: 0 10px; border-radius: var(--r-sm); font-size: var(--t-sm); color: var(--muted); text-decoration: none; box-shadow: inset 0 0 0 1px var(--line); }
 .nlink2:hover { background: var(--hover); color: var(--fg); }
 a.chip.field { flex-direction: row; gap: 0; }
+
+/* 概観(読み物) */
+.ovcta { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 52px; padding: var(--s2) var(--s4); border-radius: var(--r-sm); box-shadow: inset 0 0 0 1px var(--edge); color: var(--fg); text-decoration: none; }
+.ovcta:hover { background: var(--hover); }
+.ovcta:active { opacity: .6; }
+.ovcta .t { font-weight: 650; }
+.ovcta .m { color: var(--muted); font-size: var(--t-sm); font-variant-numeric: tabular-nums; }
+.ovsub { color: var(--muted); line-height: 1.8; }
+.ovtoc .row-link { justify-content: flex-start; align-items: baseline; gap: var(--s3); padding: var(--s3) var(--s1); }
+.ovtoc .row-link::after { margin-left: auto; align-self: center; }
+.ovtoc .ovno { flex: none; min-width: 3.4em; color: var(--muted); font-size: var(--t-sm); font-variant-numeric: tabular-nums; }
+.ovtoc .ovt { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
+.ovtoc .cur .ovt { font-weight: 650; }
+.ovread { padding-bottom: var(--s3); }
+.ovread h3 { font-size: var(--t-lg); margin-top: var(--s5); }
+.ovread .chk { color: var(--muted); font-size: .82em; }
+.ovnav { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); margin-top: var(--s4); }
+.ovnav .btn { flex-direction: column; gap: 0; min-height: 56px; line-height: 1.35; }
+.ovnav .btn .s { font-size: var(--t-xs); font-weight: 500; opacity: .8; }
+.ovnav .btn-primary { font-size: var(--t-md); }
+.ovnav .btn-primary:only-child, .ovnav > span + .btn-primary { grid-column: 2; }
+@media (max-width: 380px) { .ovnav { grid-template-columns: 1fr; } .ovnav .btn-primary:only-child, .ovnav > span + .btn-primary { grid-column: 1; } .ovnav > span { display: none; } }

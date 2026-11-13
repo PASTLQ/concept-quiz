@@ -2,7 +2,7 @@
 /* ノートを読む画面: 検索、分野の一覧、本文のリンクで概念から概念へ移動、被リンク */
 (function () {
   const Q = window.Q, S = Q.S, esc = Q.esc;
-  const N = {loaded: false, list: [], byName: new Map(), byAlias: new Map(), fields: [], back: new Map(), members: new Map(), fieldNote: new Map()};
+  const N = {loaded: false, ov: new Map(), list: [], byName: new Map(), byAlias: new Map(), fields: [], back: new Map(), members: new Map(), fieldNote: new Map()};
   let loading = null, token = 0;
   const TYPE = {c: '概念', p: '人物', d: '分野'};
   const norm = s => s.normalize('NFKC').toLowerCase();
@@ -23,6 +23,7 @@
   const linkName = x => { const m = /^\[\[([^\]|#]+)/.exec(x); return m ? m[1].trim() : null; };
   function init(d) {
     N.fields = d.fields; N.list = d.notes; N.CH = d.chunk;
+    (d.ov || []).forEach(o => N.ov.set(o.d, o));
     d.notes.forEach((n, i) => N.byName.set(n.n, i));
     d.notes.forEach((n, i) => (n.a || []).forEach(a => { if (!N.byName.has(a) && !N.byAlias.has(a)) N.byAlias.set(a, i); }));
     d.notes.forEach((n, i) => {
@@ -131,8 +132,11 @@
   const backBar = (to, label) => '<header class="qhead"><button class="btn btn-quiet" id="bk">← ' + label + '</button></header>';
   function bindBack(fallback) { const b = document.getElementById('bk'); if (b) b.onclick = () => { history.length > 1 ? history.back() : (location.hash = fallback); }; }
 
-  function noteHTML(n, body) {
+  const ovSize = o => o.c >= 10000 ? '約' + (Math.round(o.c / 1000) / 10).toLocaleString() + '万字' : '約' + (Math.round(o.c / 100) * 100).toLocaleString() + '字';
+  function noteHTML(n, body, inSheet) {
     let h = '<div class="nhead"><span class="kind">' + TYPE[n.t] + '</span><h1>' + esc(n.n) + '</h1></div>';
+    const ov = n.t === 'd' && !inSheet ? N.ov.get(n.n) : null;
+    if (ov) h += '<a class="ovcta" href="#/ov/' + enc(n.n) + '"><span class="t">概観を読む</span><span class="m">全' + ov.n + '章・' + ovSize(ov) + '</span></a>';
     if (n.t !== 'd' && n.f && n.f.length) h += '<div class="chips">' + n.f.map(fi => N.fieldNote.has(fi) ? chip(N.fields[fi], ' field') : '<span class="chip dead">' + esc(N.fields[fi]) + '</span>').join('') + '</div>';
     if (n.a && n.a.length) h += '<p class="muted small">別名　' + n.a.map(esc).join('、') + '</p>';
     if (n.p && Object.keys(n.p).length) {
@@ -225,6 +229,50 @@
   }
 
 
+
+  /* ---------- 概観(学問ごとの読み物。章ごとに1画面) ---------- */
+  const ovP = new Map(), OVY = new Map();
+  function ovLoad(o) {
+    if (!ovP.has(o.k)) ovP.set(o.k, Q.loadAux('ov-' + String(o.k).padStart(2, '0')).catch(e => { ovP.delete(o.k); throw e; }));
+    return ovP.get(o.k);
+  }
+  const ovMd = b => md(b).replace(/\(要確認\)/g, '<span class="chk">(要確認)</span>');
+  const ovPos = d => { const v = (S.meta.ovpos || {})[d]; return Number.isInteger(v) ? v : -1; };
+  function ovSave(d, k) { S.meta.ovpos = Object.assign({}, S.meta.ovpos, {[d]: k}); Q.saveMeta('ovpos', S.meta.ovpos); }
+  const chTitle = t => { const m = /^(第[0-9０-９]+章|序章|終章)\s*(.*)$/.exec(t); return m ? {no: m[1], t: m[2] || m[1]} : {no: '', t}; };
+  async function overview(disc, k) {
+    const my = ++token; loadingView();
+    try { await ensure(); } catch (e) { if (my === token) failView('ノートのデータを読み込めませんでした。', e); return; }
+    if (my !== token) return;
+    const o = N.ov.get(disc);
+    if (!o) { view(backBar('#/notes', '戻る') + '<p>「' + esc(disc) + '」の概観はまだありません。</p><a class="btn" href="#/notes">探すに戻る</a>'); bindBack('#/notes'); return; }
+    let d; try { d = await ovLoad(o); } catch (e) { if (my === token) failView('概観を読み込めませんでした。', e); return; }
+    if (my !== token) return;
+    const base = '#/ov/' + enc(disc), N_ = d.ch.length;
+    if (k === null || !(k >= 0 && k < N_)) {
+      /* 目次 */
+      const last = ovPos(disc), start = last >= 0 && last < N_ ? last : 0;
+      view(backBar('#/notes', '戻る') +
+        '<article class="note ov"><div class="nhead"><span class="kind">概観</span><h1>' + esc(d.title) + '</h1></div>' +
+        (d.sub ? '<p class="ovsub">' + esc(d.sub) + '</p>' : '') +
+        '<p class="muted small">全' + N_ + '章・' + ovSize(o) + '</p>' +
+        '<a class="btn btn-primary btn-block" href="' + base + '/' + start + '">' + (last > 0 ? '続きから読む(' + esc(chTitle(d.ch[start].t).no || '第' + (start) + '章') + ')' : '最初から読む') + '</a>' +
+        '<nav class="rows ovtoc" aria-label="章の一覧">' + d.ch.map((c, i) => { const t = chTitle(c.t); return '<a class="row-link' + (i === last ? ' cur' : '') + '" href="' + base + '/' + i + '"><span class="ovno">' + esc(t.no) + '</span><span class="ovt">' + esc(t.t) + '</span></a>'; }).join('') + '</nav>' +
+        '<div class="notice" role="note">確信の持てない事実には(要確認)を付けています。年号・数値・人名は、引用する前に原典で確かめてください。</div>' +
+        '<a class="btn btn-block" href="#/n/' + enc(disc) + '">' + esc(disc) + 'のノートを開く</a></article>');
+      bindBack('#/notes'); window.scrollTo(0, 0); return;
+    }
+    /* 章 */
+    const c = d.ch[k], t = chTitle(c.t); ovSave(disc, k);
+    Q.view('<header class="qhead"><a class="btn btn-quiet" href="' + base + '" id="toc">← 目次</a><span class="cnt">' + (k + 1) + ' / ' + N_ + '</span></header>' +
+      '<article class="note ov"><div class="nhead"><span class="kind">' + esc(d.title) + (t.no ? '　' + esc(t.no) : '') + '</span><h1>' + esc(t.t) + '</h1></div>' +
+      '<div class="md ovread">' + ovMd(c.b) + '</div>' +
+      '<nav class="ovnav">' + (k > 0 ? '<a class="btn" href="' + base + '/' + (k - 1) + '"><span class="s">前の章</span>' + esc(chTitle(d.ch[k - 1].t).no || '') + '</a>' : '<span></span>') +
+      (k < N_ - 1 ? '<a class="btn btn-primary" href="' + base + '/' + (k + 1) + '"><span class="s">次の章</span>' + esc(chTitle(d.ch[k + 1].t).no || '') + '</a>' : '<a class="btn btn-primary" href="' + base + '">目次に戻る</a>') + '</nav></article>');
+    Q.$app.querySelector('.ovread').addEventListener('click', e => { if (e.target.closest('a.wl')) OVY.set(location.hash, window.scrollY); });
+    const y = OVY.get(location.hash); window.scrollTo(0, y || 0);
+  }
+
   /* ---------- 学問ツリー(開閉して、学問 → 分野 → 概念を1画面で見る) ---------- */
   const NODE = new Map();
   function indexTree(T) {
@@ -237,6 +285,7 @@
     const cnt = members(n.fis, F.ppl).size; if (!cnt) return '';
     const open = F.open.has(n.key);
     return '<div class="node d' + Math.min(d, 2) + '" data-k="' + esc(n.key) + '" data-d="' + d + '"><div class="nh"><button class="tg" aria-expanded="' + open + '" data-t="' + esc(n.key) + '"><span class="nm">' + esc(n.name) + '</span><span class="n">' + cnt.toLocaleString() + '</span></button>' +
+      (n.di >= 0 && d === 0 && N.ov.has(n.name) ? '<a class="nlink" href="#/ov/' + enc(n.name) + '" aria-label="' + esc(n.name) + 'の概観を読む">概観</a>' : '') +
       (n.di >= 0 && d === 0 ? '<a class="nlink" href="#/n/' + enc(n.name) + '" data-n="' + esc(n.name) + '" aria-label="' + esc(n.name) + 'のノートを開く">ノート</a>' : '') + '</div>' + (open ? kidsHTML(n, d) : '') + '</div>';
   }
   function kidsHTML(n, d) {
@@ -291,7 +340,7 @@
       back.hidden = stack.length < 2; let bd;
       try { bd = await bodyOf(i); } catch (e) { body.innerHTML = '<div class="notice" role="alert">ノートを読み込めませんでした。</div>'; return; }
       if (stack[stack.length - 1] !== n.n) return;
-      body.innerHTML = '<article class="note">' + noteHTML(n, bd) + '</article>'; body.scrollTop = 0;
+      body.innerHTML = '<article class="note">' + noteHTML(n, bd, true) + '</article>'; body.scrollTop = 0;
       wireNote(body, n);
     };
     back.onclick = () => { stack.pop(); const p = stack.pop(); if (p) show(p); };
@@ -302,6 +351,8 @@
   function route(h) {
     const fm = /^#\/fields(?:\/(.*))?$/.exec(h);
     if (fm) { let nm = ''; try { nm = decodeURIComponent(fm[1] || ''); } catch (e) { nm = fm[1] || ''; } fieldsPage(nm); return; }
+    const om = /^#\/ov\/([^/]+)(?:\/(\d+))?$/.exec(h);
+    if (om) { let nm; try { nm = decodeURIComponent(om[1]); } catch (e) { nm = om[1]; } overview(nm, om[2] === undefined ? null : +om[2]); return; }
     const m = /^#\/n\/(.+)$/.exec(h);
     if (m) { let nm; try { nm = decodeURIComponent(m[1]); } catch (e) { nm = m[1]; } page(nm); } else hub();
   }
